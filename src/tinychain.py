@@ -2,15 +2,19 @@ from flask import Flask, request, jsonify
 import threading
 import time
 import random
+import blake3  # Ensure you have installed blake3-py using 'pip install blake3'
 
 app = Flask(__name__)
 
-# Placeholder classes for components (to be implemented)
 class ValidationEngine:
-    def validate_and_add_transaction(self, transaction):
-        # Placeholder implementation, validate and return transaction hash
-        transaction_hash = hash(str(transaction))
-        return transaction_hash
+    def validate_transaction(self, transaction):
+        # Placeholder implementation, perform validation checks
+        # Example: Check sender's balance, verify signature, etc.
+        transaction_valid = True
+        if transaction_valid:
+            return True
+        else:
+            return False
 
 class Mempool:
     def __init__(self):
@@ -20,40 +24,60 @@ class Mempool:
         self.transactions.append(transaction)
 
 class Miner(threading.Thread):
-    def __init__(self, mempool):
+    def __init__(self, mempool, storage_engine):
         super().__init__()
         self.mempool = mempool
-        self.blockchain = []  # Placeholder for blockchain storage
+        self.storage_engine = storage_engine
         self.running = True
 
     def run(self):
         while self.running:
             if self.mempool.transactions:
-                random_transaction = random.choice(self.mempool.transactions)
-                self.mempool.transactions.remove(random_transaction)
-                self.blockchain.append(random_transaction)
-                print(f"Added transaction '{random_transaction}' to a new block.")
+                transaction = self.mempool.transactions.pop(0)
+                if validation_engine.validate_transaction(transaction):
+                    block = self.create_block([transaction])
+                    self.storage_engine.store_block(block)
+                    print(f"Added transaction '{transaction}' to a new block and stored the block.")
             time.sleep(5)  # Wait for 5 seconds
 
-# Placeholder class for StorageEngine
+    def create_block(self, transactions):
+        # Placeholder implementation, create a new block
+        block = {
+            "transactions": transactions,
+            "block_hash": self.generate_block_hash(transactions)
+        }
+        return block
+
+    def generate_block_hash(self, transactions):
+        # Use blake3 to generate a block hash based on transactions
+        hasher = blake3.blake3()
+        for transaction in transactions:
+            hasher.update(str(transaction).encode())
+        return hasher.hexdigest()
+
 class StorageEngine:
+    def store_block(self, block):
+        # Placeholder implementation, store block data in database
+        # Use block['block_hash'] to identify the block in the database
+        pass
+
     def fetch_block(self, block_hash):
-        # Placeholder implementation, fetch block data from database
-        return {"block_hash": block_hash, "transactions": []}
+        # Placeholder implementation, retrieve block data from database
+        return {}
 
     def fetch_transaction(self, transaction_hash):
-        # Placeholder implementation, fetch transaction data from database
-        return {"transaction_hash": transaction_hash, "details": "Transaction details"}
+        # Placeholder implementation, retrieve transaction data from database
+        return {}
 
     def fetch_balance(self, account_address):
-        # Placeholder implementation, fetch account balance from database
-        return {"account_address": account_address, "balance": 100}
+        # Placeholder implementation, retrieve account balance from database
+        return {}
 
 # Create instances of components
 validation_engine = ValidationEngine()
 mempool = Mempool()
-miner = Miner(mempool)
 storage_engine = StorageEngine()
+miner = Miner(mempool, storage_engine)
 
 # Define API endpoints
 @app.route('/send_transaction', methods=['POST'])
@@ -61,8 +85,11 @@ def send_transaction():
     data = request.json
     if 'transaction' in data:
         transaction = data['transaction']
-        transaction_hash = validation_engine.validate_and_add_transaction(transaction)
-        return jsonify({'message': 'Transaction added to mempool', 'transaction_hash': transaction_hash})
+        if validation_engine.validate_transaction(transaction):
+            mempool.add_transaction(transaction)
+            return jsonify({'message': 'Transaction added to mempool'})
+        else:
+            return jsonify({'error': 'Invalid transaction'})
     else:
         return jsonify({'error': 'Transaction data not provided'})
 
