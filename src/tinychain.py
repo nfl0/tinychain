@@ -118,7 +118,7 @@ if __name__ == '__main__':
 
     try:
         while True:
-            pass  # Keep the main thread running
+            time.sleep(1)  # Keep the main thread running
     except KeyboardInterrupt:
         miner.running = False
         miner.join()  # Wait for the miner thread to finish
