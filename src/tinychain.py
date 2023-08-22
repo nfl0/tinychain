@@ -5,7 +5,7 @@ import random
 import blake3  # Ensure you have installed blake3-py using 'pip install blake3'
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, utils
 
 app = Flask(__name__)
 
@@ -20,15 +20,15 @@ class ValidationEngine:
         signature = transaction.get('signature')
 
         if not all([sender_address, receiver_address, amount, signature]):
-            return False  # Transaction data is incomplete
-
-        sender_balance = self.storage_engine.fetch_balance(sender_address)
-        if sender_balance is None or sender_balance < amount + 1:
-            return False  # Insufficient balance
+            return 'incomplete_data'  # Transaction data is incomplete
 
         sender_public_key = self.storage_engine.fetch_public_key(sender_address)
         if not sender_public_key:
-            return False  # Sender's public key not found
+            return 'sender_key_not_found'  # Sender's public key not found
+
+        sender_balance = self.storage_engine.fetch_balance(sender_address)
+        if sender_balance is None or sender_balance < amount + 1:
+            return 'insufficient_balance'  # Insufficient balance
 
         # Verify the cryptographic signature
         try:
@@ -36,12 +36,12 @@ class ValidationEngine:
             public_key.verify(
                 signature,
                 transaction.get('data').encode(),
-                padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
-                hashes.SHA256()
+                padding.PSS(mgf=padding.MGF1(utils.Prehashed(utils.PrehashedSHA256())), salt_length=padding.PSS.MAX_LENGTH),
+                utils.Prehashed(utils.PrehashedSHA256())
             )
         except Exception as e:
             print(f"Signature verification error: {e}")
-            return False  # Signature verification failed
+            return 'signature_verification_failed'  # Signature verification failed
 
         return True
 
@@ -139,11 +139,22 @@ def send_transaction():
     data = request.json
     if 'transaction' in data:
         transaction = data['transaction']
-        if validation_engine.validate_transaction(transaction):
+        validation_result = validation_engine.validate_transaction(transaction)
+        if validation_result is True:
             mempool.add_transaction(transaction)
             return jsonify({'message': 'Transaction added to mempool'})
         else:
-            return jsonify({'error': 'Invalid transaction'})
+            error_message = 'Invalid transaction'
+            if validation_result == 'incomplete_data':
+                error_message = 'Transaction data is incomplete'
+            elif validation_result == 'insufficient_balance':
+                error_message = 'Insufficient balance'
+            elif validation_result == 'sender_key_not_found':
+                error_message = "Sender's public key not found"
+            elif validation_result == 'signature_verification_failed':
+                error_message = 'Signature verification failed'
+
+            return jsonify({'error': error_message})
     else:
         return jsonify({'error': 'Transaction data not provided'})
 
