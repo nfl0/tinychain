@@ -39,7 +39,7 @@ Classes:
 Data Structures:
 - Peers Database: Stores peer node information, including IP addresses, port numbers, and metadata.
 - Blocks Database: Stores complete block data, including transactions, header, and metadata.
-- Transactions Database: Tracks transactions with sender and recipient addresses, amount, inputs, outputs, and digital signatures.
+- Transactions Database: Tracks transactions with sender and recipient addresses, amount, and digital signatures.
 - Blockchain Headers: Stores header information for each block, including height, hash, and timestamp.
 - Accounts Database: Manages account balances and associated data, maintaining the mapping between account addresses and balances.
 
