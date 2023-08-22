@@ -4,17 +4,46 @@ import time
 import random
 import blake3  # Ensure you have installed blake3-py using 'pip install blake3'
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+
 app = Flask(__name__)
 
 class ValidationEngine:
+    def __init__(self, storage_engine):
+        self.storage_engine = storage_engine
+
     def validate_transaction(self, transaction):
-        # Placeholder implementation, perform validation checks
-        # Example: Check sender's balance, verify signature, etc.
-        transaction_valid = True
-        if transaction_valid:
-            return True
-        else:
-            return False
+        sender_address = transaction.get('sender')
+        receiver_address = transaction.get('receiver')
+        amount = transaction.get('amount')
+        signature = transaction.get('signature')
+
+        if not all([sender_address, receiver_address, amount, signature]):
+            return False  # Transaction data is incomplete
+
+        sender_balance = self.storage_engine.fetch_balance(sender_address)
+        if sender_balance is None or sender_balance < amount + 1:
+            return False  # Insufficient balance
+
+        sender_public_key = self.storage_engine.fetch_public_key(sender_address)
+        if not sender_public_key:
+            return False  # Sender's public key not found
+
+        # Verify the cryptographic signature
+        try:
+            public_key = serialization.load_pem_public_key(sender_public_key.encode())
+            public_key.verify(
+                signature,
+                transaction.get('data').encode(),
+                padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
+                hashes.SHA256()
+            )
+        except Exception as e:
+            print(f"Signature verification error: {e}")
+            return False  # Signature verification failed
+
+        return True
 
 class Mempool:
     def __init__(self):
@@ -56,27 +85,52 @@ class Miner(threading.Thread):
         return hasher.hexdigest()
 
 class StorageEngine:
+    def __init__(self):
+        self.blocks_db = {}
+        self.accounts_db = {}
+
     def store_block(self, block):
-        # Placeholder implementation, store block data in database
-        # Use block['block_hash'] to identify the block in the database
-        pass
+        block_hash = block['block_hash']
+        self.blocks_db[block_hash] = block
 
     def fetch_block(self, block_hash):
-        # Placeholder implementation, retrieve block data from database
-        return {}
+        return self.blocks_db.get(block_hash)
 
-    def fetch_transaction(self, transaction_hash):
-        # Placeholder implementation, retrieve transaction data from database
-        return {}
+    def store_transaction(self, transaction_hash, transaction):
+        self.accounts_db.setdefault(transaction['sender'], {'balance': 0})
+        self.accounts_db.setdefault(transaction['receiver'], {'balance': 0})
+
+        sender_balance = self.accounts_db[transaction['sender']]['balance']
+        receiver_balance = self.accounts_db[transaction['receiver']]['balance']
+        
+        sender_balance -= transaction['amount'] + 1
+        receiver_balance += transaction['amount']
+
+        self.accounts_db[transaction['sender']]['balance'] = sender_balance
+        self.accounts_db[transaction['receiver']]['balance'] = receiver_balance
 
     def fetch_balance(self, account_address):
-        # Placeholder implementation, retrieve account balance from database
-        return {}
+        account_data = self.accounts_db.get(account_address)
+        if account_data:
+            return account_data['balance']
+        return None
+
+    def store_public_key(self, account_address, public_key):
+        self.accounts_db.setdefault(account_address, {})
+        self.accounts_db[account_address]['public_key'] = public_key
+
+    def fetch_public_key(self, account_address):
+        account_data = self.accounts_db.get(account_address)
+        if account_data:
+            return account_data.get('public_key')
+        return None
+
 
 # Create instances of components
-validation_engine = ValidationEngine()
-mempool = Mempool()
 storage_engine = StorageEngine()
+validation_engine = ValidationEngine(storage_engine)
+mempool = Mempool()
+
 miner = Miner(mempool, storage_engine)
 
 # Define API endpoints
