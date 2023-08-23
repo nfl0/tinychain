@@ -1,11 +1,11 @@
 from flask import Flask, request, jsonify
 import threading
 import time
-import random
-import blake3  # Ensure you have installed blake3-py using 'pip install blake3'
-
+import json
+import blake3
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding, utils
+import plyvel
 
 app = Flask(__name__)
 
@@ -33,12 +33,16 @@ class ValidationEngine:
         # Verify the cryptographic signature
         try:
             public_key = serialization.load_pem_public_key(sender_public_key.encode())
-            public_key.verify(
-                signature,
-                transaction.get('data').encode(),
-                padding.PSS(mgf=padding.MGF1(utils.Prehashed(utils.PrehashedSHA256())), salt_length=padding.PSS.MAX_LENGTH),
-                utils.Prehashed(utils.PrehashedSHA256())
-            )
+            signature = transaction.get('signature')
+            if signature:
+                public_key.verify(
+                    signature,
+                    sender_address.encode(),  # Signing the sender's address for verification
+                    padding.PSS(mgf=padding.MGF1(utils.Prehashed(utils.PrehashedSHA256())), salt_length=padding.PSS.MAX_LENGTH),
+                    utils.Prehashed(utils.PrehashedSHA256())
+                )
+            else:
+                return 'signature_missing'  # Signature is missing
         except Exception as e:
             print(f"Signature verification error: {e}")
             return 'signature_verification_failed'  # Signature verification failed
@@ -70,7 +74,6 @@ class Miner(threading.Thread):
             time.sleep(5)  # Wait for 5 seconds
 
     def create_block(self, transactions):
-        # Placeholder implementation, create a new block
         block = {
             "transactions": transactions,
             "block_hash": self.generate_block_hash(transactions)
@@ -86,15 +89,18 @@ class Miner(threading.Thread):
 
 class StorageEngine:
     def __init__(self):
-        self.blocks_db = {}
-        self.accounts_db = {}
+        self.blocks_db = plyvel.DB('blocks_db', create_if_missing=True)  # Create or open LevelDB
+        self.accounts_db = plyvel.DB('accounts_db', create_if_missing=True)  # Create or open LevelDB
 
     def store_block(self, block):
         block_hash = block['block_hash']
-        self.blocks_db[block_hash] = block
+        self.blocks_db.put(block_hash.encode(), str(block).encode())
 
     def fetch_block(self, block_hash):
-        return self.blocks_db.get(block_hash)
+        block_data = self.blocks_db.get(block_hash.encode())
+        if block_data:
+            return eval(block_data.decode())  # Convert bytes to dictionary
+        return None
 
     def store_transaction(self, transaction_hash, transaction):
         self.accounts_db.setdefault(transaction['sender'], {'balance': 0})
@@ -124,14 +130,16 @@ class StorageEngine:
         if account_data:
             return account_data.get('public_key')
         return None
+    def close(self):
+        self.blocks_db.close()
+        self.accounts_db.close()
 
 
 # Create instances of components
-storage_engine = StorageEngine()
-validation_engine = ValidationEngine(storage_engine)
+#storage_engine = StorageEngine()
 mempool = Mempool()
 
-miner = Miner(mempool, storage_engine)
+#miner = Miner(mempool, storage_engine)
 
 # Define API endpoints
 @app.route('/send_transaction', methods=['POST'])
@@ -139,6 +147,7 @@ def send_transaction():
     data = request.json
     if 'transaction' in data:
         transaction = data['transaction']
+
         validation_result = validation_engine.validate_transaction(transaction)
         if validation_result is True:
             mempool.add_transaction(transaction)
@@ -151,12 +160,15 @@ def send_transaction():
                 error_message = 'Insufficient balance'
             elif validation_result == 'sender_key_not_found':
                 error_message = "Sender's public key not found"
+            elif validation_result == 'signature_missing':
+                error_message = 'Signature is missing'
             elif validation_result == 'signature_verification_failed':
                 error_message = 'Signature verification failed'
 
             return jsonify({'error': error_message})
     else:
         return jsonify({'error': 'Transaction data not provided'})
+
 
 @app.route('/get_block/<block_hash>', methods=['GET'])
 def get_block(block_hash):
@@ -174,11 +186,16 @@ def get_balance(account_address):
     return jsonify(balance_data)
 
 if __name__ == '__main__':
+    storage_engine = StorageEngine()
+    validation_engine = ValidationEngine(storage_engine)
+
+
     # Start Flask app in a separate thread
     flask_thread = threading.Thread(target=app.run, kwargs={'host': '0.0.0.0', 'port': 5000})
     flask_thread.start()
 
     # Start the miner thread
+    miner = Miner(mempool, storage_engine)  # Pass the encryption key
     miner.start()
 
     try:
@@ -187,4 +204,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         miner.running = False
         miner.join()  # Wait for the miner thread to finish
+        storage_engine.close()  # Close LevelDB connections
         flask_thread.join()  # Wait for the Flask thread to finish
