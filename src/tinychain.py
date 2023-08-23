@@ -3,28 +3,47 @@ import threading
 import time
 import blake3
 import logging
-import signal
-import sys
+import ecdsa
+from ecdsa import VerifyingKey
+
 
 app = Flask(__name__)
+
+class Block:
+    def __init__(self, transactions):
+        self.transactions = transactions
+        self.timestamp = int(time.time())
+        self.block_hash = self.generate_block_hash()
+
+    def generate_block_hash(self):
+        hasher = blake3.blake3()
+        for transaction in self.transactions:
+            hasher.update(str(transaction).encode())
+        hasher.update(str(self.timestamp).encode())
+        return hasher.hexdigest()
 
 class ValidationEngine:
     def __init__(self, storage_engine):
         self.storage_engine = storage_engine
 
     def validate_transaction(self, transaction):
-        sender_address = transaction.get('sender')
-        receiver_address = transaction.get('receiver')
-        amount = transaction.get('amount')
+        required_fields = ['sender', 'receiver', 'amount', 'signature']
+        if all(field in transaction for field in required_fields):
+            sender_balance = self.storage_engine.fetch_balance(transaction['sender'])
+            if sender_balance is not None and sender_balance >= transaction['amount'] + 1:
+                if self.verify_transaction_signature(transaction):
+                    return True
+        return False
 
-        if not all([sender_address, receiver_address, amount]):
-            return False  # Transaction data is incomplete
-
-        sender_balance = self.storage_engine.fetch_balance(sender_address)
-        if sender_balance is None or sender_balance < amount + 1:
-            return False  # Insufficient balance
-
-        return True
+    def verify_transaction_signature(self, transaction):
+        public_key = transaction['sender']
+        signature = transaction['signature']
+        vk = VerifyingKey.from_string(bytes.fromhex(public_key), curve=ecdsa.SECP256k1)
+        try:
+            vk.verify(bytes.fromhex(signature), transaction['message'].encode())
+            return True
+        except ecdsa.BadSignatureError:
+            return False
 
 class Mempool:
     def __init__(self):
@@ -48,50 +67,26 @@ class Miner(threading.Thread):
             if self.mempool.transactions:
                 transaction = self.mempool.transactions.pop(0)
                 if self.validation_engine.validate_transaction(transaction):
-                    transactions_to_process = [transaction]  # Placeholder, you might accumulate multiple transactions
-                    block = self.create_block(transactions_to_process)
+                    block = Block([transaction])
                     self.storage_engine.store_block(block)
                     logging.info(f"Added transaction '{transaction}' to a new block and stored the block.")
             else:
-                block = self.create_block([])  # Create empty block with timestamp
+                block = Block([])  # Create empty block with timestamp
                 self.storage_engine.store_block(block)
                 logging.info("Created an empty block.")
 
             time.sleep(5)  # Wait for 5 seconds
 
-    def create_block(self, transactions):
-        timestamp = int(time.time())  # Unix timestamp
-        block_data = {
-            "timestamp": timestamp,
-            "transactions": transactions,
-        }
-        block_hash = self.generate_block_hash(block_data)
-        block_data["block_hash"] = block_hash
-        return block_data
-
-    def generate_block_hash(self, block_data):
-        # Use blake3 to generate a block hash based on block data
-        hasher = blake3.blake3()
-        for key, value in block_data.items():
-            hasher.update(str(value).encode())
-        return hasher.hexdigest()
-
 class StorageEngine:
     def store_block(self, block):
-        # Placeholder implementation, store block data in database
-        logging.info(f"Stored block: {block}")
+        logging.info(f"Stored block: {block.block_hash}")
 
     def fetch_balance(self, account_address):
         # Placeholder implementation, retrieve account balance from database
         # Replace this with your actual database retrieval logic
-        return None
-
-def handle_shutdown(signum, frame):
-    logging.info("Shutting down gracefully...")
-    miner.running = False
-    flask_thread.join()  # Wait for the Flask thread to finish
-    sys.exit(0)
-
+        #return None
+        return 100
+    
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -105,25 +100,12 @@ miner = Miner(mempool, storage_engine, validation_engine)
 @app.route('/send_transaction', methods=['POST'])
 def send_transaction():
     data = request.json
-    if 'transaction' in data:
+    if 'transaction' in data and validation_engine.validate_transaction(data['transaction']):
         transaction = data['transaction']
-        if validation_engine.validate_transaction(transaction):
-            mempool.add_transaction(transaction)
-            return jsonify({'message': 'Transaction added to mempool'})
-        else:
-            return jsonify({'error': 'Invalid transaction'})
-    else:
-        return jsonify({'error': 'Transaction data not provided'})
-
-@app.route('/get_block/<block_hash>', methods=['GET'])
-def get_block(block_hash):
-    block_data = storage_engine.fetch_block(block_hash)
-    return jsonify(block_data)
-
-@app.route('/balance/<account_address>', methods=['GET'])
-def get_balance(account_address):
-    balance_data = storage_engine.fetch_balance(account_address)
-    return jsonify(balance_data)
+        transaction['message'] = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}"
+        mempool.add_transaction(transaction)
+        return jsonify({'message': 'Transaction added to mempool'})
+    return jsonify({'error': 'Invalid transaction data'})
 
 if __name__ == '__main__':
     # Start Flask app in a separate thread
@@ -133,12 +115,10 @@ if __name__ == '__main__':
     # Start the miner thread
     miner.start()
 
-    # Register the shutdown handler for SIGINT (Ctrl+C)
-    signal.signal(signal.SIGINT, handle_shutdown)
-
-    # Remove the infinite loop
     try:
-        flask_thread.join()  # Wait for the Flask thread to finish
-        miner.join()  # Wait for the miner thread to finish
+        while True:
+            pass  # Keep the main thread running
     except KeyboardInterrupt:
-        handle_shutdown(signal.SIGINT, None)  # Trigger the shutdown handler
+        miner.running = False
+        miner.join()  # Wait for the miner thread to finish
+        flask_thread.join()  # Wait for the Flask thread to finish
