@@ -145,7 +145,7 @@ class StorageEngine:
         balance = self.db_accounts.get(account_address.encode())
         if balance is not None:
             return int(balance)
-        return 10
+        return None
     
     def fetch_block(self, block_hash):
         block_data = self.db_blocks.get(block_hash.encode())
