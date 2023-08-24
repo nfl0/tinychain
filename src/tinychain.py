@@ -12,6 +12,17 @@ import json
 
 app = Flask(__name__)
 
+
+BLOCK_TIME = 5
+miner_public_key = 'aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'
+block_reward_transaction = {
+                    'sender': 'blockchain',
+                    'receiver': miner_public_key,
+                    'amount': 10,
+                    'signature': '',
+                    'message': 'block_reward'
+                }
+
 class Block:
     def __init__(self, transactions):
         self.transactions = transactions
@@ -72,66 +83,44 @@ class Miner(threading.Thread):
         self.running = True
 
     def initialize_account(self, account_address, initial_balance):
-        # Check if the account is initialized
         if self.storage_engine.fetch_balance(account_address) is None:
-            # Initialize the account with the initial balance
             self.storage_engine.db_accounts.put(account_address.encode(), str(int(initial_balance)).encode())
             return True
         return False
     
     def run(self):
         while self.running:
-            miner_public_key = 'aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'
-            if not self.mempool.is_empty():
-                # Mine transactions from mempool up to 3 transactions per block
-                transactions_to_mine = []
-                while len(transactions_to_mine) < 3 and not self.mempool.is_empty():
-                    transaction = self.mempool.get_transaction()
-                    if self.validation_engine.validate_transaction(transaction):
-                        remaining_amount = transaction['amount'] - 1  # Deduct 1 as registration fee
-                        if remaining_amount >= 0:
-                            if not self.initialize_account(transaction['receiver'], remaining_amount):
-                                transactions_to_mine.append(transaction)
+            transactions_to_mine = []
+            while len(transactions_to_mine) < 3 and not self.mempool.is_empty():
+                transaction = self.mempool.get_transaction()
+                if self.validation_engine.validate_transaction(transaction):
+                    remaining_amount = transaction['amount'] - 1  # Deduct 1 as registration fee
+                    if remaining_amount >= 0:
+                        if not self.initialize_account(transaction['receiver'], remaining_amount):
+                            transactions_to_mine.append(transaction)
+            transactions_to_mine.append(block_reward_transaction)
 
-                # Add block reward transaction
-                block_reward_transaction = {
-                    'sender': 'blockchain',
-                    'receiver': miner_public_key,
-                    'amount': 10,
-                    'signature': '',
-                    'message': 'block_reward'
-                }
-                transactions_to_mine.append(block_reward_transaction)
-
-                block = Block(transactions_to_mine)
-                self.storage_engine.store_block(block)
-                logging.info(f"Added {len(transactions_to_mine)} transactions to a new block and stored the block.")
+            miner_account_balance = storage_engine.fetch_balance(block_reward_transaction['receiver'])
+            if miner_account_balance is None:
+                self.initialize_account(block_reward_transaction['receiver'], block_reward_transaction['amount'])
+            block = Block(transactions_to_mine)
+            self.storage_engine.store_block(block)
+            if len(transactions_to_mine) > 1:
+                logging.info(f"Added {len(transactions_to_mine)-1} transactions to a new block and stored the block.")
             else:
-                # Add block reward transaction
-                block_reward_transaction = {
-                    'sender': 'blockchain',
-                    'receiver': miner_public_key,
-                    'amount': 10,
-                    'signature': '',
-                    'message': 'block_reward'
-                }
-                block = Block([block_reward_transaction])
-                self.storage_engine.store_block(block)
                 logging.info("Created an empty block.")
 
-            time.sleep(5)  # Wait for 5 seconds
+            time.sleep(BLOCK_TIME)
+
 
 class StorageEngine:
     def __init__(self):
         self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
         self.db_accounts = plyvel.DB('accounts.db', create_if_missing=True)
-        # Initialize the "blockchain" account balance with 1000 tinycoins, for testing purposes. todo: implement the genesis block.
+        # Initialize the "blockchain" account for testing purposes. must replace with a "genesis block" implementation.
         blockchain_balance = self.fetch_balance('blockchain')
         if blockchain_balance is None:
             self.db_accounts.put('blockchain'.encode(), str(1000).encode())
-        miner_balance = self.fetch_balance('aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c')
-        if miner_balance is None:
-            self.db_accounts.put('aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'.encode(), str(0).encode())  # Initialize with 0
 
     def store_block(self, block):
         block_data = {
@@ -146,13 +135,9 @@ class StorageEngine:
             sender = transaction['sender']
             receiver = transaction['receiver']
             amount = transaction['amount']
-            
-            # Update sender's balance
             sender_balance = self.fetch_balance(sender)
             if sender_balance is not None:
                 self.db_accounts.put(sender.encode(), str(sender_balance - amount).encode())
-
-            # Update receiver's balance
             receiver_balance = self.fetch_balance(receiver)
             if receiver_balance is not None:
                 new_receiver_balance = receiver_balance + amount
@@ -195,32 +180,6 @@ def send_transaction():
         mempool.add_transaction(transaction)
         return jsonify({'message': 'Transaction added to mempool'})
     return jsonify({'error': 'Invalid transaction data'}), 400
-
-@app.route('/get_block/<string:block_hash>', methods=['GET'])
-def get_block_by_hash(block_hash):
-    block_data = storage_engine.fetch_block(block_hash)
-    if block_data is not None:
-        return jsonify(block_data)
-    return jsonify({'error': 'Block not found'}), 404
-
-@app.route('/get_balance/<string:account_address>', methods=['GET'])
-def get_balance(account_address):
-    balance = storage_engine.fetch_balance(account_address)
-    if balance is not None:
-        return jsonify({'balance': balance})
-    return jsonify({'error': 'Account not found'}), 404
-
-@app.route('/get_accounts', methods=['GET'])
-def get_accounts():
-    accounts = []
-    for key, value in storage_engine.db_accounts:
-        account = {
-            'address': key.decode(),
-            'balance': int(value.decode())
-        }
-        accounts.append(account)
-    return jsonify(accounts)
-
 
 stop_event = threading.Event()
 def cleanup():
