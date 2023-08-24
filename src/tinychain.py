@@ -145,6 +145,12 @@ class StorageEngine:
         balance = self.db_accounts.get(account_address.encode())
         if balance is not None:
             return int(balance)
+        return 10
+    
+    def fetch_block(self, block_hash):
+        block_data = self.db_blocks.get(block_hash.encode())
+        if block_data is not None:
+            return json.loads(block_data.decode())
         return None
     
 # Configure logging
@@ -166,6 +172,22 @@ def send_transaction():
         mempool.add_transaction(transaction)
         return jsonify({'message': 'Transaction added to mempool'})
     return jsonify({'error': 'Invalid transaction data'})
+
+@app.route('/get_block/<string:block_hash>', methods=['GET'])
+def get_block_by_hash(block_hash):
+    block_data = storage_engine.fetch_block(block_hash)
+    if block_data is not None:
+        return jsonify(block_data)
+    return jsonify({'error': 'Block not found'}), 404
+
+@app.route('/get_balance/<string:account_address>', methods=['GET'])
+def get_balance(account_address):
+    balance = storage_engine.fetch_balance(account_address)
+    if balance is not None:
+        return jsonify({'balance': balance})
+    return jsonify({'error': 'Account not found'}), 404
+
+
 
 # Define an event to signal threads to stop
 stop_event = threading.Event()
