@@ -71,6 +71,14 @@ class Miner(threading.Thread):
         self.validation_engine = validation_engine
         self.running = True
 
+    def initialize_account(self, account_address, initial_balance):
+        # Check if the account is initialized
+        if self.storage_engine.fetch_balance(account_address) is None:
+            # Initialize the account with the initial balance
+            self.storage_engine.db_accounts.put(account_address.encode(), str(int(initial_balance)).encode())
+            return True
+        return False
+    
     def run(self):
         while self.running:
             miner_public_key = 'aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'
@@ -107,32 +115,29 @@ class Miner(threading.Thread):
                     'signature': '',
                     'message': 'block_reward'
                 }
-                block = Block([block_reward_transaction])  # Create empty block with timestamp
+                block = Block([block_reward_transaction])
                 self.storage_engine.store_block(block)
                 logging.info("Created an empty block.")
 
             time.sleep(5)  # Wait for 5 seconds
 
-    def initialize_account(self, account_address, initial_balance):
-        # Check if the account is initialized
-        if self.storage_engine.fetch_balance(account_address) is None:
-            # Initialize the account with the initial balance
-            self.storage_engine.db_accounts.put(account_address.encode(), str(initial_balance).encode())
-            return True
-        return False
+    
 
 
 class StorageEngine:
     def __init__(self):
         self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
         self.db_accounts = plyvel.DB('accounts.db', create_if_missing=True)
-        # Initialize the "blockchain" account balance
+        # Initialize the "blockchain" account balance with 1000 tinycoins, for testing purposes. todo: implement the genesis block.
         blockchain_balance = self.fetch_balance('blockchain')
         if blockchain_balance is None:
-            self.db_accounts.put('blockchain'.encode(), b'1000')  # Initialize with 1000
+            self.db_accounts.put('blockchain'.encode(), str(1000).encode())
         miner_balance = self.fetch_balance('aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c')
         if miner_balance is None:
-            self.db_accounts.put('aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'.encode(), b'0')  # Initialize with 0
+            self.db_accounts.put('aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'.encode(), str(0).encode())  # Initialize with 0
+        account1_balance = self.fetch_balance('e4670480a5f20c2629b8f7a93acaf97ec5bd66cb5f7bba23d533a26719c29fc4cabe17a08a0582febf75df34c6f93e825947f0050296a54e578e232fd99f91ea')
+        if account1_balance is None:
+            self.db_accounts.put('e4670480a5f20c2629b8f7a93acaf97ec5bd66cb5f7bba23d533a26719c29fc4cabe17a08a0582febf75df34c6f93e825947f0050296a54e578e232fd99f91ea'.encode(), str(0).encode())  # Initialize with 0
 
     def store_block(self, block):
         block_data = {
@@ -152,19 +157,23 @@ class StorageEngine:
             sender_balance = self.fetch_balance(sender)
             if sender_balance is not None:
                 self.db_accounts.put(sender.encode(), str(sender_balance - amount).encode())
-            
+
             # Update receiver's balance
             receiver_balance = self.fetch_balance(receiver)
             if receiver_balance is not None:
-                self.db_accounts.put(receiver.encode(), str(receiver_balance + amount).encode())
+                new_receiver_balance = receiver_balance + amount
+                self.db_accounts.put(receiver.encode(), str(new_receiver_balance).encode())
+
+
 
         logging.info(f"Stored block: {block.block_hash}")
 
     def fetch_balance(self, account_address):
         balance = self.db_accounts.get(account_address.encode())
         if balance is not None:
-            return int(balance)
+            return int(balance.decode())
         return None
+
     
     def fetch_block(self, block_hash):
         block_data = self.db_blocks.get(block_hash.encode())
@@ -181,16 +190,20 @@ validation_engine = ValidationEngine(storage_engine)
 mempool = Mempool()
 miner = Miner(mempool, storage_engine, validation_engine)
 
-# Define API endpoints
+# API endpoints
 @app.route('/send_transaction', methods=['POST'])
 def send_transaction():
     data = request.json
     if 'transaction' in data and validation_engine.validate_transaction(data['transaction']):
         transaction = data['transaction']
+        try:
+            transaction['amount'] = int(transaction['amount'])
+        except ValueError:
+            return jsonify({'error': 'Invalid transaction amount'}), 400
         transaction['message'] = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}"
         mempool.add_transaction(transaction)
         return jsonify({'message': 'Transaction added to mempool'})
-    return jsonify({'error': 'Invalid transaction data'})
+    return jsonify({'error': 'Invalid transaction data'}), 400
 
 @app.route('/get_block/<string:block_hash>', methods=['GET'])
 def get_block_by_hash(block_hash):
@@ -207,26 +220,17 @@ def get_balance(account_address):
     return jsonify({'error': 'Account not found'}), 404
 
 
-
-# Define an event to signal threads to stop
 stop_event = threading.Event()
-
-# Define a cleanup function to stop threads
 def cleanup():
     stop_event.set()
-    miner.join()  # Wait for the miner thread to finish
-    flask_thread.join()  # Wait for the Flask thread to finish
-
-# Register the cleanup function to be called on program exit
+    miner.join()
+    flask_thread.join()
 atexit.register(cleanup)
 
 if __name__ == '__main__':
-    # Start Flask app in a separate thread
     flask_thread = threading.Thread(target=app.run, kwargs={'host': '0.0.0.0', 'port': 5000})
     flask_thread.start()
 
-    # Start the miner thread
     miner.start()
 
-    # Wait for the stop event
     stop_event.wait()

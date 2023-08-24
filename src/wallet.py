@@ -79,7 +79,7 @@ if __name__ == '__main__':
                 receiving_public_key = pickle.load(file).get_verifying_key()
                 receiver_address = receiving_public_key.to_string()
 
-            amount = float(input("Enter amount to send:"))
+            amount = int(input("Enter amount to send:"))
 
             transaction = create_transaction(sender_address, receiver_address, amount, private_key)
             print("Created Transaction:", transaction)
