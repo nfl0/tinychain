@@ -121,9 +121,6 @@ class Miner(threading.Thread):
 
             time.sleep(5)  # Wait for 5 seconds
 
-    
-
-
 class StorageEngine:
     def __init__(self):
         self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
@@ -135,9 +132,6 @@ class StorageEngine:
         miner_balance = self.fetch_balance('aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c')
         if miner_balance is None:
             self.db_accounts.put('aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'.encode(), str(0).encode())  # Initialize with 0
-        account1_balance = self.fetch_balance('e4670480a5f20c2629b8f7a93acaf97ec5bd66cb5f7bba23d533a26719c29fc4cabe17a08a0582febf75df34c6f93e825947f0050296a54e578e232fd99f91ea')
-        if account1_balance is None:
-            self.db_accounts.put('e4670480a5f20c2629b8f7a93acaf97ec5bd66cb5f7bba23d533a26719c29fc4cabe17a08a0582febf75df34c6f93e825947f0050296a54e578e232fd99f91ea'.encode(), str(0).encode())  # Initialize with 0
 
     def store_block(self, block):
         block_data = {
@@ -164,8 +158,6 @@ class StorageEngine:
                 new_receiver_balance = receiver_balance + amount
                 self.db_accounts.put(receiver.encode(), str(new_receiver_balance).encode())
 
-
-
         logging.info(f"Stored block: {block.block_hash}")
 
     def fetch_balance(self, account_address):
@@ -174,7 +166,6 @@ class StorageEngine:
             return int(balance.decode())
         return None
 
-    
     def fetch_block(self, block_hash):
         block_data = self.db_blocks.get(block_hash.encode())
         if block_data is not None:
@@ -218,6 +209,17 @@ def get_balance(account_address):
     if balance is not None:
         return jsonify({'balance': balance})
     return jsonify({'error': 'Account not found'}), 404
+
+@app.route('/get_accounts', methods=['GET'])
+def get_accounts():
+    accounts = []
+    for key, value in storage_engine.db_accounts:
+        account = {
+            'address': key.decode(),
+            'balance': int(value.decode())
+        }
+        accounts.append(account)
+    return jsonify(accounts)
 
 
 stop_event = threading.Event()
