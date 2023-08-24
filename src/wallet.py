@@ -29,7 +29,7 @@ def send_transaction(transaction):
 if __name__ == '__main__':
     sender_address = public_key.to_string()
     receiver_address = public_key.to_string()  # Sending to self for testing
-    amount = 99  # Amount to send
+    amount = 10  # Amount to send
     
     transaction = create_transaction(sender_address, receiver_address, amount)
     print("Created Transaction:", transaction)
