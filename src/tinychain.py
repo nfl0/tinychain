@@ -59,13 +59,10 @@ class ValidationEngine:
 class Mempool:
     def __init__(self):
         self.transactions = Queue()
-
     def add_transaction(self, transaction):
         self.transactions.put(transaction)
-
     def get_transaction(self):
         return self.transactions.get()
-
     def is_empty(self):
         return self.transactions.empty()
 
@@ -158,9 +155,6 @@ class StorageEngine:
     def close(self):
         self.db_blocks.close()
         self.db_accounts.close()
-    
-    def fetch_last_block_hash(self):
-        return self.last_block_hash
     
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
