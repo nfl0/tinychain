@@ -42,9 +42,7 @@ class ValidationEngine:
         if all(field in transaction for field in required_fields):
             sender_balance = self.storage_engine.fetch_balance(transaction['sender'])
             if sender_balance is not None and sender_balance >= transaction['amount']:
-                if transaction['message'] == 'block_reward':
-                    return True
-                elif self.verify_transaction_signature(transaction):
+                if self.verify_transaction_signature(transaction):
                     return True
         return False
 
@@ -157,6 +155,10 @@ class StorageEngine:
             return json.loads(block_data.decode())
         return None
     
+    def close(self):
+        self.db_blocks.close()
+        self.db_accounts.close()
+    
     def fetch_last_block_hash(self):
         return self.last_block_hash
     
@@ -197,6 +199,7 @@ def cleanup():
     stop_event.set()
     miner.join()
     flask_thread.join()
+    storage_engine.close()
 atexit.register(cleanup)
 
 if __name__ == '__main__':
