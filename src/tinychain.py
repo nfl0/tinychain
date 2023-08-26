@@ -17,7 +17,8 @@ BLOCK_REWARD = 10
 miner_public_key = 'aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'
 
 class Block:
-    def __init__(self, transactions, miner_address, previous_block_hash=None):
+    def __init__(self, height, transactions, miner_address, previous_block_hash=None):
+        self.height = height
         self.transactions = transactions
         self.timestamp = int(time.time())
         self.miner = miner_address
@@ -67,14 +68,15 @@ class Mempool:
         return self.transactions.empty()
 
 class Miner(threading.Thread):
-    def __init__(self, mempool, storage_engine, validation_engine, miner_address):
+    def __init__(self, mempool, storage_engine, validation_engine, miner_address, last_block_data):
         super().__init__()
         self.mempool = mempool
         self.storage_engine = storage_engine
         self.validation_engine = validation_engine
         self.miner_address = miner_address
         self.running = True
-        self.previous_block_hash = None
+        self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
+        self.block_height = last_block_data['height'] + 1 if last_block_data else 0  # Initialize block height
 
     def initialize_account(self, account_address, initial_balance):
         if self.storage_engine.fetch_balance(account_address) is None:
@@ -93,10 +95,11 @@ class Miner(threading.Thread):
                         if not self.initialize_account(transaction['receiver'], remaining_amount):
                             transactions_to_mine.append(transaction)
 
-            block = Block(transactions_to_mine, self.miner_address, self.previous_block_hash)
+            block = Block(self.block_height, transactions_to_mine, self.miner_address, self.previous_block_hash)
             self.storage_engine.store_block(block)
 
-            self.previous_block_hash = block.block_hash  # Update previous block hash
+            self.previous_block_hash = block.block_hash
+            self.block_height += 1
 
             time.sleep(BLOCK_TIME)
 
@@ -108,6 +111,7 @@ class StorageEngine:
 
     def store_block(self, block):
         block_data = {
+            'height': block.height,
             'transactions': block.transactions,
             'timestamp': block.timestamp,
             'miner': block.miner,
@@ -152,6 +156,14 @@ class StorageEngine:
             return json.loads(block_data.decode())
         return None
     
+    def fetch_last_block(self):
+        last_block = None
+        for block_hash, block_data in self.db_blocks.iterator(reverse=True):
+            block_info = json.loads(block_data.decode())
+            if last_block is None or block_info['height'] > last_block['height']:
+                last_block = block_info
+        return last_block
+    
     def close(self):
         self.db_blocks.close()
         self.db_accounts.close()
@@ -163,7 +175,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 storage_engine = StorageEngine()
 validation_engine = ValidationEngine(storage_engine)
 mempool = Mempool()
-miner = Miner(mempool, storage_engine, validation_engine, miner_public_key)
+last_block_data = storage_engine.fetch_last_block()
+miner = Miner(mempool, storage_engine, validation_engine, miner_public_key, last_block_data)
 
 # API endpoints
 @app.route('/send_transaction', methods=['POST'])
