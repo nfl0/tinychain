@@ -59,13 +59,15 @@ class ValidationEngine:
 
 class Mempool:
     def __init__(self):
-        self.transactions = Queue()
+        self.transactions = {}
     def add_transaction(self, transaction):
-        self.transactions.put(transaction)
-    def get_transaction(self):
-        return self.transactions.get()
+        sender = transaction['sender']
+        self.transactions[sender] = transaction
+    def get_transaction(self, sender):
+        return self.transactions.get(sender)
     def is_empty(self):
-        return self.transactions.empty()
+        return len(self.transactions) == 0
+
 
 class Miner(threading.Thread):
     def __init__(self, mempool, storage_engine, validation_engine, miner_address, last_block_data):
@@ -76,32 +78,33 @@ class Miner(threading.Thread):
         self.miner_address = miner_address
         self.running = True
         self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
-        self.block_height = last_block_data['height'] + 1 if last_block_data else 0  # Initialize block height
+        self.block_height = last_block_data['height'] + 1 if last_block_data else 0
+        self.block_timer = None
 
-    def initialize_account(self, account_address, initial_balance):
-        if self.storage_engine.fetch_balance(account_address) is None:
-            self.storage_engine.db_accounts.put(account_address.encode(), str(int(initial_balance)).encode())
-            return True
-        return False
-    
+    def mine_block(self):
+        transactions_to_mine = []
+        while len(transactions_to_mine) < 3 and not self.mempool.is_empty():
+            transaction = self.mempool.get_transaction()
+            if self.validation_engine.validate_transaction(transaction):
+                transactions_to_mine.append(transaction)
+
+        block = Block(self.block_height, transactions_to_mine, self.miner_address, self.previous_block_hash)
+        self.storage_engine.store_block(block)
+
+        self.previous_block_hash = block.block_hash
+        self.block_height += 1
+
+        self.block_timer = threading.Timer(BLOCK_TIME, self.mine_block)
+        self.block_timer.start()
+
     def run(self):
-        while self.running:
-            transactions_to_mine = []
-            while len(transactions_to_mine) < 3 and not self.mempool.is_empty():
-                transaction = self.mempool.get_transaction()
-                if self.validation_engine.validate_transaction(transaction):
-                    remaining_amount = transaction['amount']
-                    if remaining_amount >= 0:
-                        if not self.initialize_account(transaction['receiver'], remaining_amount):
-                            transactions_to_mine.append(transaction)
+        self.block_timer = threading.Timer(0, self.mine_block)
+        self.block_timer.start()
 
-            block = Block(self.block_height, transactions_to_mine, self.miner_address, self.previous_block_hash)
-            self.storage_engine.store_block(block)
+    def stop(self):
+        self.block_timer.cancel()
+        self.running = False
 
-            self.previous_block_hash = block.block_hash
-            self.block_height += 1
-
-            time.sleep(BLOCK_TIME)
 
 class StorageEngine:
     def __init__(self):
@@ -136,11 +139,13 @@ class StorageEngine:
             if sender_balance is not None:
                 self.db_accounts.put(sender.encode(), str(sender_balance - amount).encode())
             receiver_balance = self.fetch_balance(receiver)
-            if receiver_balance is not None:
-                new_receiver_balance = receiver_balance + amount
-                self.db_accounts.put(receiver.encode(), str(new_receiver_balance).encode())
+            if receiver_balance is None:
+                self.db_accounts.put(receiver.encode(), str(0).encode())
+                receiver_balance = 0
+            receiver_balance += amount
+            self.db_accounts.put(receiver.encode(), str(receiver_balance).encode())
 
-        self.last_block_hash = block.block_hash  # Update last block hash
+        self.last_block_hash = block.block_hash
 
         logging.info(f"Stored block: {block.block_hash}")
 
@@ -189,9 +194,13 @@ def send_transaction():
         except ValueError:
             return jsonify({'error': 'Invalid transaction amount'}), 400
         transaction['message'] = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}"
+        
+        # Add the transaction to the mempool (replacing existing if any)
         mempool.add_transaction(transaction)
+        
         return jsonify({'message': 'Transaction added to mempool'})
     return jsonify({'error': 'Invalid transaction data'}), 400
+
 
 @app.route('/get_block/<string:block_hash>', methods=['GET'])
 def get_block_by_hash(block_hash):
