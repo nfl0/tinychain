@@ -2,11 +2,15 @@ import requests
 import ecdsa
 import pickle
 import os
+import time
+
+API_URL = 'http://127.0.0.1:5000'  # Update to the correct API URL
+WALLET_PATH = './wallets/'
 
 def generate_keypair(filename):
     private_key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
     public_key = private_key.get_verifying_key()
-    with open(filename, "wb") as file:
+    with open(os.path.join(WALLET_PATH, filename), "wb") as file:
         pickle.dump(private_key, file)
     return private_key, public_key
 
@@ -26,16 +30,25 @@ def send_transaction(transaction):
     data = {
         'transaction': transaction
     }
-    response = requests.post('http://192.168.0.111:5000/send_transaction', json=data)
+    response = requests.post(f'{API_URL}/send_transaction', json=data)
     return response.json()
 
+def get_balance(address):
+    response = requests.get(f'{API_URL}/get_balance/{address.hex()}')
+    return response.json()
+
+def print_wallet_menu():
+    print("Select an option:")
+    print("1. Generate New Wallet")
+    print("2. Send Funds")
+    print("3. Send to Custom Address")
+    print("4. Exit")
+
 if __name__ == '__main__':
+    os.makedirs(WALLET_PATH, exist_ok=True)
+
     while True:
-        print("Select an option:")
-        print("1. Generate New Wallet")
-        print("2. Send Funds")
-        print("3. Send to Custom Address")
-        print("4. Exit")
+        print_wallet_menu()
         option = int(input())
 
         if option == 1:
@@ -43,8 +56,8 @@ if __name__ == '__main__':
             private_key, public_key = generate_keypair(wallet_name)
             print(f"New wallet '{wallet_name}' generated.")
 
-        elif option == 2:
-            wallet_files = [f for f in os.listdir() if f.startswith("wallet") and f.endswith(".dat")]
+        elif option == 2 or option == 3:
+            wallet_files = [f for f in os.listdir(WALLET_PATH) if f.startswith("wallet") and f.endswith(".dat")]
             if not wallet_files:
                 print("No wallets found. Generate wallets first.")
                 continue
@@ -59,62 +72,43 @@ if __name__ == '__main__':
                 continue
 
             sending_wallet = wallet_files[sending_option]
-            with open(sending_wallet, "rb") as file:
+            with open(os.path.join(WALLET_PATH, sending_wallet), "rb") as file:
                 private_key = pickle.load(file)
                 public_key = private_key.get_verifying_key()
                 sender_address = public_key.to_string()
 
-            print("Select receiving account:")
-            for idx, wallet_file in enumerate(wallet_files):
-                print(f"{idx + 1}. {wallet_file}")
-            receiving_option = int(input()) - 1
+            if option == 2:
+                print("Select receiving account:")
+                for idx, wallet_file in enumerate(wallet_files):
+                    print(f"{idx + 1}. {wallet_file}")
+                receiving_option = int(input()) - 1
 
-            if receiving_option < 0 or receiving_option >= len(wallet_files):
-                print("Invalid option.")
-                continue
+                if receiving_option < 0 or receiving_option >= len(wallet_files):
+                    print("Invalid option.")
+                    continue
 
-            receiving_wallet = wallet_files[receiving_option]
-            with open(receiving_wallet, "rb") as file:
-                receiving_public_key = pickle.load(file).get_verifying_key()
-                receiver_address = receiving_public_key.to_string()
+                receiving_wallet = wallet_files[receiving_option]
+                with open(os.path.join(WALLET_PATH, receiving_wallet), "rb") as file:
+                    receiving_public_key = pickle.load(file).get_verifying_key()
+                    receiver_address = receiving_public_key.to_string()
 
-            amount = int(input("Enter amount to send:"))
+                amount = int(input("Enter amount to send:"))
 
-            transaction = create_transaction(sender_address, receiver_address, amount, private_key)
-            print("Created Transaction:", transaction)
+                transaction = create_transaction(sender_address, receiver_address, amount, private_key)
+                print("Created Transaction:", transaction)
 
-            response = send_transaction(transaction)
-            print("Transaction Response:", response)
+                response = send_transaction(transaction)
+                print("Transaction Response:", response)
 
-        elif option == 3:
-            custom_address = bytes.fromhex(input("Enter custom address:"))
-            amount = int(input("Enter amount to send:"))
+            elif option == 3:
+                custom_address = bytes.fromhex(input("Enter custom address:"))
+                amount = int(input("Enter amount to send:"))
 
-            wallet_files = [f for f in os.listdir() if f.startswith("wallet") and f.endswith(".dat")]
-            if not wallet_files:
-                print("No wallets found. Generate wallets first.")
-                continue
+                transaction = create_transaction(sender_address, custom_address, amount, private_key)
+                print("Created Transaction:", transaction)
 
-            print("Select sending wallet:")
-            for idx, wallet_file in enumerate(wallet_files):
-                print(f"{idx + 1}. {wallet_file}")
-            sending_option = int(input()) - 1
-
-            if sending_option < 0 or sending_option >= len(wallet_files):
-                print("Invalid option.")
-                continue
-
-            sending_wallet = wallet_files[sending_option]
-            with open(sending_wallet, "rb") as file:
-                private_key = pickle.load(file)
-                public_key = private_key.get_verifying_key()
-                sender_address = public_key.to_string()
-
-            transaction = create_transaction(sender_address, custom_address, amount, private_key)
-            print("Created Transaction:", transaction)
-
-            response = send_transaction(transaction)
-            print("Transaction Response:", response)
+                response = send_transaction(transaction)
+                print("Transaction Response:", response)
 
         elif option == 4:
             print("Exiting.")
@@ -122,3 +116,13 @@ if __name__ == '__main__':
 
         else:
             print("Invalid option. Please select a valid option.")
+
+        # Periodically fetch account balance every 6 seconds
+        balance_fetch_interval = 6  # seconds
+        start_time = time.time()
+        while time.time() - start_time < balance_fetch_interval:
+            sender_balance = get_balance(sender_address)
+            print(f"Sender Balance: {sender_balance.get('balance', 'N/A')}")
+
+            # Wait for a short interval before fetching balance again
+            time.sleep(1)
