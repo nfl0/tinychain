@@ -23,11 +23,21 @@ class Transaction:
         self.amount = amount
         self.signature = signature
         self.message = f"{sender}-{receiver}-{amount}"
+        self.transaction_hash = self.generate_transaction_hash()
+
+    def generate_transaction_hash(self):
+        hasher = blake3.blake3()
+        hasher.update(str(self.sender).encode())
+        hasher.update(str(self.receiver).encode())
+        hasher.update(str(self.amount).encode())
+        hasher.update(str(self.signature).encode())
+        return hasher.hexdigest()
 
 class TransactionEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Transaction):
             return {
+                'hash': obj.transaction_hash,
                 'sender': obj.sender,
                 'receiver': obj.receiver,
                 'amount': obj.amount,
@@ -46,8 +56,9 @@ class Block:
 
     def generate_block_hash(self):
         hasher = blake3.blake3()
-        for transaction in self.transactions:
-            hasher.update(str(transaction).encode())
+        sorted_transactions = sorted(self.transactions, key=lambda t: t.transaction_hash)
+        for transaction in sorted_transactions:
+            hasher.update(transaction.transaction_hash.encode())
         hasher.update(str(self.timestamp).encode())
         if self.previous_block_hash:
             hasher.update(str(self.previous_block_hash).encode())
@@ -58,7 +69,7 @@ class ValidationEngine:
         self.storage_engine = storage_engine
 
     def validate_transaction(self, transaction):
-        if isinstance(transaction, Transaction):  # Check if it's an instance of the Transaction class
+        if isinstance(transaction, Transaction):
             sender_balance = self.storage_engine.fetch_balance(transaction.sender)
             if sender_balance is not None and sender_balance >= transaction.amount:
                 if self.verify_transaction_signature(transaction):
@@ -213,7 +224,7 @@ def send_transaction():
         )
         if validation_engine.validate_transaction(transaction):
             mempool.add_transaction(transaction)
-            return jsonify({'message': 'Transaction added to mempool'})
+            return jsonify({'message': 'Transaction added to mempool', 'transaction_hash': transaction.transaction_hash})
     return jsonify({'error': 'Invalid transaction data'}), 400
 
 @app.route('/get_block/<string:block_hash>', methods=['GET'])
