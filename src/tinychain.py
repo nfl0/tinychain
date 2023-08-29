@@ -10,6 +10,7 @@ import atexit
 import plyvel
 import json
 from jsonschema import validate
+import jsonschema
 
 app = Flask(__name__)
 
@@ -101,12 +102,11 @@ class ValidationEngine:
 
 class Mempool:
     def __init__(self):
-        self.transactions = {}  # Use a dictionary to store transactions by sender
+        self.transactions = {}
 
     def add_transaction(self, transaction):
         sender = transaction.sender
         if sender in self.transactions:
-            # If there is an existing transaction from the same sender, replace it
             self.transactions[sender] = transaction
         else:
             self.transactions[sender] = transaction
@@ -143,17 +143,13 @@ class Miner(threading.Thread):
             if self.validation_engine.validate_transaction(transaction):
                 valid_transactions_to_mine.append(transaction)
             else:
-                # Remove invalid transactions from the mempool
                 self.mempool.remove_transaction(transaction)
 
-        # Limit the number of transactions to at most 3
         transactions_to_include = valid_transactions_to_mine[:3]
 
         block = Block(self.block_height, transactions_to_include, self.miner_address, self.previous_block_hash)
         self.storage_engine.store_block(block)
 
-        # The transactions included in the block have been successfully processed
-        # and are removed from the mempool
         for transaction in transactions_to_include:
             self.mempool.remove_transaction(transaction)
 
@@ -162,8 +158,6 @@ class Miner(threading.Thread):
 
         self.block_timer = threading.Timer(BLOCK_TIME, self.mine_block)
         self.block_timer.start()
-
-
 
     def run(self):
         self.block_timer = threading.Timer(0, self.mine_block)
