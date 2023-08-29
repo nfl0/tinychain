@@ -9,12 +9,25 @@ from queue import Queue
 import atexit
 import plyvel
 import json
+from jsonschema import validate
 
 app = Flask(__name__)
 
 BLOCK_TIME = 5
 BLOCK_REWARD = 10
 miner_public_key = 'aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'
+
+# Define JSON schema for transaction data validation
+transaction_schema = {
+    "type": "object",
+    "properties": {
+        "sender": {"type": "string"},
+        "receiver": {"type": "string"},
+        "amount": {"type": "number"},
+        "signature": {"type": "string"}
+    },
+    "required": ["sender", "receiver", "amount", "signature"]
+}
 
 class Transaction:
     def __init__(self, sender, receiver, amount, signature):
@@ -88,13 +101,27 @@ class ValidationEngine:
 
 class Mempool:
     def __init__(self):
-        self.transactions = Queue()
+        self.transactions = {}  # Use a dictionary to store transactions by sender
+
     def add_transaction(self, transaction):
-        self.transactions.put(transaction)
-    def get_transaction(self):
-        return self.transactions.get()
+        sender = transaction.sender
+        if sender in self.transactions:
+            # If there is an existing transaction from the same sender, replace it
+            self.transactions[sender] = transaction
+        else:
+            self.transactions[sender] = transaction
+
+    def remove_transaction(self, transaction):
+        sender = transaction.sender
+        if sender in self.transactions:
+            del self.transactions[sender]
+
+    def get_transactions(self):
+        return list(self.transactions.values())
+
     def is_empty(self):
-        return self.transactions.empty()
+        return len(self.transactions) == 0
+
 
 class Miner(threading.Thread):
     def __init__(self, mempool, storage_engine, validation_engine, miner_address, last_block_data):
@@ -109,20 +136,34 @@ class Miner(threading.Thread):
         self.block_timer = None
 
     def mine_block(self):
-        transactions_to_mine = []
-        while len(transactions_to_mine) < 3 and not self.mempool.is_empty():
-            transaction = self.mempool.get_transaction()
-            if self.validation_engine.validate_transaction(transaction):
-                transactions_to_mine.append(transaction)
+        transactions_to_mine = self.mempool.get_transactions()
+        valid_transactions_to_mine = []
 
-        block = Block(self.block_height, transactions_to_mine, self.miner_address, self.previous_block_hash)
+        for transaction in transactions_to_mine:
+            if self.validation_engine.validate_transaction(transaction):
+                valid_transactions_to_mine.append(transaction)
+            else:
+                # Remove invalid transactions from the mempool
+                self.mempool.remove_transaction(transaction)
+
+        # Limit the number of transactions to at most 3
+        transactions_to_include = valid_transactions_to_mine[:3]
+
+        block = Block(self.block_height, transactions_to_include, self.miner_address, self.previous_block_hash)
         self.storage_engine.store_block(block)
+
+        # The transactions included in the block have been successfully processed
+        # and are removed from the mempool
+        for transaction in transactions_to_include:
+            self.mempool.remove_transaction(transaction)
 
         self.previous_block_hash = block.block_hash
         self.block_height += 1
 
         self.block_timer = threading.Timer(BLOCK_TIME, self.mine_block)
         self.block_timer.start()
+
+
 
     def run(self):
         self.block_timer = threading.Timer(0, self.mine_block)
@@ -131,7 +172,6 @@ class Miner(threading.Thread):
     def stop(self):
         self.block_timer.cancel()
         self.running = False
-
 
 class StorageEngine:
     def __init__(self):
@@ -216,15 +256,19 @@ def send_transaction():
     data = request.json
     if 'transaction' in data:
         transaction_data = data['transaction']
-        transaction = Transaction(
-            sender=transaction_data['sender'],
-            receiver=transaction_data['receiver'],
-            amount=int(transaction_data['amount']),
-            signature=transaction_data['signature']
-        )
-        if validation_engine.validate_transaction(transaction):
-            mempool.add_transaction(transaction)
-            return jsonify({'message': 'Transaction added to mempool', 'transaction_hash': transaction.transaction_hash})
+        try:
+            validate(instance=transaction_data, schema=transaction_schema)
+            transaction = Transaction(
+                sender=transaction_data['sender'],
+                receiver=transaction_data['receiver'],
+                amount=int(transaction_data['amount']),
+                signature=transaction_data['signature']
+            )
+            if validation_engine.validate_transaction(transaction):
+                mempool.add_transaction(transaction)
+                return jsonify({'message': 'Transaction added to mempool', 'transaction_hash': transaction.transaction_hash})
+        except jsonschema.exceptions.ValidationError:
+            pass
     return jsonify({'error': 'Invalid transaction data'}), 400
 
 @app.route('/get_block/<string:block_hash>', methods=['GET'])
