@@ -5,7 +5,6 @@ import blake3
 import logging
 import ecdsa
 from ecdsa import VerifyingKey
-from queue import Queue
 import atexit
 import plyvel
 import json
