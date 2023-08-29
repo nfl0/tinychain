@@ -1,7 +1,5 @@
 import requests
 import ecdsa
-import hashlib
-import json
 import pickle
 import os
 
@@ -36,7 +34,8 @@ if __name__ == '__main__':
         print("Select an option:")
         print("1. Generate New Wallet")
         print("2. Send Funds")
-        print("3. Exit")
+        print("3. Send to Custom Address")
+        print("4. Exit")
         option = int(input())
 
         if option == 1:
@@ -88,6 +87,36 @@ if __name__ == '__main__':
             print("Transaction Response:", response)
 
         elif option == 3:
+            custom_address = bytes.fromhex(input("Enter custom address:"))
+            amount = int(input("Enter amount to send:"))
+
+            wallet_files = [f for f in os.listdir() if f.startswith("wallet") and f.endswith(".dat")]
+            if not wallet_files:
+                print("No wallets found. Generate wallets first.")
+                continue
+
+            print("Select sending wallet:")
+            for idx, wallet_file in enumerate(wallet_files):
+                print(f"{idx + 1}. {wallet_file}")
+            sending_option = int(input()) - 1
+
+            if sending_option < 0 or sending_option >= len(wallet_files):
+                print("Invalid option.")
+                continue
+
+            sending_wallet = wallet_files[sending_option]
+            with open(sending_wallet, "rb") as file:
+                private_key = pickle.load(file)
+                public_key = private_key.get_verifying_key()
+                sender_address = public_key.to_string()
+
+            transaction = create_transaction(sender_address, custom_address, amount, private_key)
+            print("Created Transaction:", transaction)
+
+            response = send_transaction(transaction)
+            print("Transaction Response:", response)
+
+        elif option == 4:
             print("Exiting.")
             break
 
