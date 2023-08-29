@@ -1,98 +1,124 @@
-# tinymask.py - Official Full-Fledged Software Wallet for Tinychain Blockchain
-
 import requests
-import random
-import string
-import tkinter as tk
-from tkinter import messagebox
+import ecdsa
+import pickle
+import os
 
-class Tinymask:
-    def __init__(self, node_url):
-        self.node_url = node_url
+def generate_keypair(filename):
+    private_key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
+    public_key = private_key.get_verifying_key()
+    with open(filename, "wb") as file:
+        pickle.dump(private_key, file)
+    return private_key, public_key
 
-    def generate_keypair(self):
-        private_key = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-        public_key = private_key + "-pub"
-        return private_key, public_key
+def create_transaction(sender, receiver, amount, sender_key):
+    transaction = {
+        'sender': sender.hex(),
+        'receiver': receiver.hex(),
+        'amount': amount,
+    }
+    message = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}"
+    signature = sender_key.sign(message.encode()).hex()
+    transaction['signature'] = signature
+    transaction['message'] = message
+    return transaction
 
-    def get_balance(self, address):
-        url = f"{self.node_url}/balance/{address}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
+def send_transaction(transaction):
+    data = {
+        'transaction': transaction
+    }
+    response = requests.post('http://192.168.0.111:5000/send_transaction', json=data)
+    return response.json()
+
+if __name__ == '__main__':
+    while True:
+        print("Select an option:")
+        print("1. Generate New Wallet")
+        print("2. Send Funds")
+        print("3. Send to Custom Address")
+        print("4. Exit")
+        option = int(input())
+
+        if option == 1:
+            wallet_name = input("Enter wallet name (e.g., wallet1.dat): ")
+            private_key, public_key = generate_keypair(wallet_name)
+            print(f"New wallet '{wallet_name}' generated.")
+
+        elif option == 2:
+            wallet_files = [f for f in os.listdir() if f.startswith("wallet") and f.endswith(".dat")]
+            if not wallet_files:
+                print("No wallets found. Generate wallets first.")
+                continue
+
+            print("Select sending wallet:")
+            for idx, wallet_file in enumerate(wallet_files):
+                print(f"{idx + 1}. {wallet_file}")
+            sending_option = int(input()) - 1
+
+            if sending_option < 0 or sending_option >= len(wallet_files):
+                print("Invalid option.")
+                continue
+
+            sending_wallet = wallet_files[sending_option]
+            with open(sending_wallet, "rb") as file:
+                private_key = pickle.load(file)
+                public_key = private_key.get_verifying_key()
+                sender_address = public_key.to_string()
+
+            print("Select receiving account:")
+            for idx, wallet_file in enumerate(wallet_files):
+                print(f"{idx + 1}. {wallet_file}")
+            receiving_option = int(input()) - 1
+
+            if receiving_option < 0 or receiving_option >= len(wallet_files):
+                print("Invalid option.")
+                continue
+
+            receiving_wallet = wallet_files[receiving_option]
+            with open(receiving_wallet, "rb") as file:
+                receiving_public_key = pickle.load(file).get_verifying_key()
+                receiver_address = receiving_public_key.to_string()
+
+            amount = int(input("Enter amount to send:"))
+
+            transaction = create_transaction(sender_address, receiver_address, amount, private_key)
+            print("Created Transaction:", transaction)
+
+            response = send_transaction(transaction)
+            print("Transaction Response:", response)
+
+        elif option == 3:
+            custom_address = bytes.fromhex(input("Enter custom address:"))
+            amount = int(input("Enter amount to send:"))
+
+            wallet_files = [f for f in os.listdir() if f.startswith("wallet") and f.endswith(".dat")]
+            if not wallet_files:
+                print("No wallets found. Generate wallets first.")
+                continue
+
+            print("Select sending wallet:")
+            for idx, wallet_file in enumerate(wallet_files):
+                print(f"{idx + 1}. {wallet_file}")
+            sending_option = int(input()) - 1
+
+            if sending_option < 0 or sending_option >= len(wallet_files):
+                print("Invalid option.")
+                continue
+
+            sending_wallet = wallet_files[sending_option]
+            with open(sending_wallet, "rb") as file:
+                private_key = pickle.load(file)
+                public_key = private_key.get_verifying_key()
+                sender_address = public_key.to_string()
+
+            transaction = create_transaction(sender_address, custom_address, amount, private_key)
+            print("Created Transaction:", transaction)
+
+            response = send_transaction(transaction)
+            print("Transaction Response:", response)
+
+        elif option == 4:
+            print("Exiting.")
+            break
+
         else:
-            return None
-
-    def send_transaction(self, sender, recipient, amount):
-        url = f"{self.node_url}/transaction"
-        data = {
-            "sender": sender,
-            "recipient": recipient,
-            "amount": amount
-        }
-        response = requests.post(url, json=data)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return None
-
-    # Add more methods for interacting with the Tinychain blockchain API
-
-def generate_keypair():
-    wallet = Tinymask(node_url)
-    private_key, public_key = wallet.generate_keypair()
-    messagebox.showinfo("Keypair Generated", f"Private Key: {private_key}\nPublic Key: {public_key}")
-
-def get_balance():
-    wallet = Tinymask(node_url)
-    address = address_entry.get()
-    balance = wallet.get_balance(address)
-    messagebox.showinfo("Balance", f"Address: {address}\nBalance: {balance}")
-
-def send_transaction():
-    wallet = Tinymask(node_url)
-    sender = sender_entry.get()
-    recipient = recipient_entry.get()
-    amount = amount_entry.get()
-    result = wallet.send_transaction(sender, recipient, amount)
-    messagebox.showinfo("Transaction Result", result)
-
-# Create the UI
-window = tk.Tk()
-window.title("Tinymask Wallet")
-window.geometry("400x300")
-
-node_url = "http://localhost:5000"  # Replace with the actual node URL
-
-# Generate Keypair
-generate_keypair_button = tk.Button(window, text="Generate Keypair", command=generate_keypair)
-generate_keypair_button.pack(pady=10)
-
-# Get Balance
-address_label = tk.Label(window, text="Address:")
-address_label.pack()
-address_entry = tk.Entry(window)
-address_entry.pack()
-get_balance_button = tk.Button(window, text="Get Balance", command=get_balance)
-get_balance_button.pack(pady=10)
-
-# Send Transaction
-sender_label = tk.Label(window, text="Sender:")
-sender_label.pack()
-sender_entry = tk.Entry(window)
-sender_entry.pack()
-
-recipient_label = tk.Label(window, text="Recipient:")
-recipient_label.pack()
-recipient_entry = tk.Entry(window)
-recipient_entry.pack()
-
-amount_label = tk.Label(window, text="Amount:")
-amount_label.pack()
-amount_entry = tk.Entry(window)
-amount_entry.pack()
-
-send_transaction_button = tk.Button(window, text="Send Transaction", command=send_transaction)
-send_transaction_button.pack(pady=10)
-
-window.mainloop()
+            print("Invalid option. Please select a valid option.")
