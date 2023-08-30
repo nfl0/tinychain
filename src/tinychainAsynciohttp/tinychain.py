@@ -169,13 +169,13 @@ class StorageEngine:
     def store_block(self, block):
         block_data = {
             'height': block.height,
-            'transactions': [json.dumps(t, cls=TransactionEncoder) for t in block.transactions],
+            'transactions': block.transactions,
             'timestamp': block.timestamp,
             'miner': block.miner,
             'block_hash': block.block_hash,
             'previous_block_hash': block.previous_block_hash
         }
-        self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data).encode())
+        self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
         
         # Update miner account balance with block reward
         miner_balance = self.fetch_balance(block.miner)
