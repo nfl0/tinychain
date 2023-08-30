@@ -292,7 +292,7 @@ if __name__ == '__main__':
     site = web.TCPSite(app_runner, host='0.0.0.0', port=5000)
     loop.run_until_complete(site.start())
 
-    loop.create_task(miner.mine_block())  # Start the miner task
+    loop.create_task(miner.mine_block()) 
     
     try:
         loop.run_forever()
