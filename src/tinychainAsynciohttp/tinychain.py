@@ -100,12 +100,14 @@ class ValidationEngine:
             return False
 
 class Mempool:
-    def __init__(self):
+    def __init__(self, max_size):
         self.transactions = {}
+        self.max_size = max_size
 
     def add_transaction(self, transaction):
-        sender = transaction.sender
-        self.transactions[sender] = transaction
+        if len(self.transactions) < self.max_size:
+            sender = transaction.sender
+            self.transactions[sender] = transaction
 
     def remove_transaction(self, transaction):
         sender = transaction.sender
@@ -162,78 +164,106 @@ class Miner:
 
 class StorageEngine:
     def __init__(self):
-        self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
-        self.db_accounts = plyvel.DB('accounts.db', create_if_missing=True)
+        self.db_blocks = None
+        self.db_accounts = None
         self.last_block_hash = None
 
+    def open_databases(self):
+        try:
+            self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
+            self.db_accounts = plyvel.DB('accounts.db', create_if_missing=True)
+        except Exception as e:
+            logging.error(f"Failed to open databases: {e}")
+
+    def close_databases(self):
+        try:
+            if self.db_blocks:
+                self.db_blocks.close()
+            if self.db_accounts:
+                self.db_accounts.close()
+        except Exception as e:
+            logging.error(f"Failed to close databases: {e}")
+
     def store_block(self, block):
-        block_data = {
-            'height': block.height,
-            'transactions': block.transactions,
-            'timestamp': block.timestamp,
-            'miner': block.miner,
-            'block_hash': block.block_hash,
-            'previous_block_hash': block.previous_block_hash
-        }
-        self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
-        
-        # Update miner account balance with block reward
-        miner_balance = self.fetch_balance(block.miner)
-        if miner_balance is None:
-            self.db_accounts.put(block.miner.encode(), str(0).encode())
-        if miner_balance is not None:
-            self.db_accounts.put(block.miner.encode(), str(miner_balance + BLOCK_REWARD).encode())
+        try:
+            block_data = {
+                'height': block.height,
+                'transactions': block.transactions,
+                'timestamp': block.timestamp,
+                'miner': block.miner,
+                'block_hash': block.block_hash,
+                'previous_block_hash': block.previous_block_hash
+            }
+            self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
+            
+            # Update miner account balance with block reward
+            miner_balance = self.fetch_balance(block.miner)
+            if miner_balance is None:
+                self.db_accounts.put(block.miner.encode(), str(0).encode())
+            if miner_balance is not None:
+                self.db_accounts.put(block.miner.encode(), str(miner_balance + BLOCK_REWARD).encode())
 
-        # Update account balances for transactions
-        for transaction in block.transactions:
-            sender = transaction.sender
-            receiver = transaction.receiver
-            amount = transaction.amount
-            sender_balance = self.fetch_balance(sender)
-            if sender_balance is not None:
-                self.db_accounts.put(sender.encode(), str(sender_balance - amount).encode())
-            receiver_balance = self.fetch_balance(receiver)
-            if receiver_balance is None:
-                self.db_accounts.put(receiver.encode(), str(0).encode())
-                receiver_balance = 0
-            receiver_balance += amount
-            self.db_accounts.put(receiver.encode(), str(receiver_balance).encode())
+            # Update account balances for transactions
+            for transaction in block.transactions:
+                sender = transaction.sender
+                receiver = transaction.receiver
+                amount = transaction.amount
+                sender_balance = self.fetch_balance(sender)
+                if sender_balance is not None:
+                    self.db_accounts.put(sender.encode(), str(sender_balance - amount).encode())
+                receiver_balance = self.fetch_balance(receiver)
+                if receiver_balance is None:
+                    self.db_accounts.put(receiver.encode(), str(0).encode())
+                    receiver_balance = 0
+                receiver_balance += amount
+                self.db_accounts.put(receiver.encode(), str(receiver_balance).encode())
 
-        self.last_block_hash = block.block_hash
+            self.last_block_hash = block.block_hash
 
-        logging.info(f"Stored block: {block.block_hash}")
+            logging.info(f"Stored block: {block.block_hash}")
+        except Exception as e:
+            logging.error(f"Failed to store block: {e}")
 
     def fetch_balance(self, account_address):
-        balance = self.db_accounts.get(account_address.encode())
-        if balance is not None:
-            return int(balance.decode())
+        try:
+            balance = self.db_accounts.get(account_address.encode())
+            if balance is not None:
+                return int(balance.decode())
+        except Exception as e:
+            logging.error(f"Failed to fetch balance: {e}")
         return None
 
     def fetch_block(self, block_hash):
-        block_data = self.db_blocks.get(block_hash.encode())
-        if block_data is not None:
-            return json.loads(block_data.decode())
+        try:
+            block_data = self.db_blocks.get(block_hash.encode())
+            if block_data is not None:
+                return json.loads(block_data.decode())
+        except Exception as e:
+            logging.error(f"Failed to fetch block: {e}")
         return None
     
     def fetch_last_block(self):
         last_block = None
-        for block_hash, block_data in self.db_blocks.iterator(reverse=True):
-            block_info = json.loads(block_data.decode())
-            if last_block is None or block_info['height'] > last_block['height']:
-                last_block = block_info
+        try:
+            for block_hash, block_data in self.db_blocks.iterator(reverse=True):
+                block_info = json.loads(block_data.decode())
+                if last_block is None or block_info['height'] > last_block['height']:
+                    last_block = block_info
+        except Exception as e:
+            logging.error(f"Failed to fetch last block: {e}")
         return last_block
     
     def close(self):
-        self.db_blocks.close()
-        self.db_accounts.close()
+        self.close_databases()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Create instances of components
 storage_engine = StorageEngine()
+storage_engine.open_databases()
 validation_engine = ValidationEngine(storage_engine)
-mempool = Mempool()
+mempool = Mempool(max_size=1000)
 last_block_data = storage_engine.fetch_last_block()
 miner = Miner(mempool, storage_engine, validation_engine, miner_public_key, last_block_data)
 
