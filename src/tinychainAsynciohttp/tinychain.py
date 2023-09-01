@@ -1,7 +1,5 @@
 from aiohttp import web
 import asyncio
-import time
-import blake3
 import logging
 import ecdsa
 from ecdsa import VerifyingKey
