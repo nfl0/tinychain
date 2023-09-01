@@ -11,71 +11,61 @@ import json
 from jsonschema import validate
 import jsonschema
 
+
 app = web.Application()
 
 BLOCK_TIME = 5
 BLOCK_REWARD = 10
-miner_public_key = 'aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'
+VALIDATOR_PUBLIC_KEY = 'aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'
 
-# Define JSON schema for transaction data validation
 transaction_schema = {
     "type": "object",
     "properties": {
         "sender": {"type": "string"},
         "receiver": {"type": "string"},
         "amount": {"type": "number"},
-        "signature": {"type": "string"}
+        "signature": {"type": "string"},
+        "memo": {"type": "string"}
     },
     "required": ["sender", "receiver", "amount", "signature"]
 }
 
 class Transaction:
-    def __init__(self, sender, receiver, amount, signature):
+    def __init__(self, sender, receiver, amount, signature, memo=None):
         self.sender = sender
         self.receiver = receiver
         self.amount = amount
         self.signature = signature
+        self.memo = memo
         self.message = f"{sender}-{receiver}-{amount}"
         self.transaction_hash = self.generate_transaction_hash()
 
     def generate_transaction_hash(self):
-        hasher = blake3.blake3()
-        hasher.update(str(self.sender).encode())
-        hasher.update(str(self.receiver).encode())
-        hasher.update(str(self.amount).encode())
-        hasher.update(str(self.signature).encode())
-        return hasher.hexdigest()
+        values = [str(self.sender), str(self.receiver), str(self.amount), str(self.signature)]
+        return blake3.blake3(''.join(values).encode()).hexdigest()
 
 class TransactionEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Transaction):
-            return {
-                'hash': obj.transaction_hash,
-                'sender': obj.sender,
-                'receiver': obj.receiver,
-                'amount': obj.amount,
-                'signature': obj.signature
-            }
+            return vars(obj)
         return super().default(obj)
 
 class Block:
-    def __init__(self, height, transactions, miner_address, previous_block_hash=None):
+    def __init__(self, height, transactions, validator_address, previous_block_hash=None):
         self.height = height
         self.transactions = transactions
         self.timestamp = int(time.time())
-        self.miner = miner_address
+        self.validator = validator_address
         self.previous_block_hash = previous_block_hash
         self.block_hash = self.generate_block_hash()
 
     def generate_block_hash(self):
-        hasher = blake3.blake3()
-        sorted_transactions = sorted(self.transactions, key=lambda t: t.transaction_hash)
-        for transaction in sorted_transactions:
-            hasher.update(transaction.transaction_hash.encode())
-        hasher.update(str(self.timestamp).encode())
+        sorted_transaction_hashes = [t.transaction_hash for t in sorted(self.transactions, key=lambda t: t.transaction_hash)]
+        values = sorted_transaction_hashes + [str(self.timestamp)]
         if self.previous_block_hash:
-            hasher.update(str(self.previous_block_hash).encode())
-        return hasher.hexdigest()
+            values.append(str(self.previous_block_hash))
+        return blake3.blake3(''.join(values).encode()).hexdigest()
+
 
 class ValidationEngine:
     def __init__(self, storage_engine):
@@ -120,32 +110,25 @@ class Mempool:
     def is_empty(self):
         return len(self.transactions) == 0
 
-
-class Miner:
-    def __init__(self, mempool, storage_engine, validation_engine, miner_address, last_block_data):
+class Forger:
+    def __init__(self, mempool, storage_engine, validation_engine, validator_address, last_block_data):
         self.mempool = mempool
         self.storage_engine = storage_engine
         self.validation_engine = validation_engine
-        self.miner_address = miner_address
+        self.validator_address = validator_address
         self.running = True
         self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
         self.block_height = last_block_data['height'] + 1 if last_block_data else 0
         self.block_timer = None
 
-    async def mine_block(self):
+    async def forge_new_block(self):
         while self.running:
-            transactions_to_mine = self.mempool.get_transactions()
-            valid_transactions_to_mine = []
+            transactions_to_forge = self.mempool.get_transactions()
+            valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
 
-            for transaction in transactions_to_mine:
-                if self.validation_engine.validate_transaction(transaction):
-                    valid_transactions_to_mine.append(transaction)
-                else:
-                    self.mempool.remove_transaction(transaction)
+            transactions_to_include = valid_transactions_to_forge[:3]
 
-            transactions_to_include = valid_transactions_to_mine[:3]
-
-            block = Block(self.block_height, transactions_to_include, self.miner_address, self.previous_block_hash)
+            block = Block(self.block_height, transactions_to_include, self.validator_address, self.previous_block_hash)
             self.storage_engine.store_block(block)
 
             for transaction in transactions_to_include:
@@ -157,7 +140,7 @@ class Miner:
             await asyncio.sleep(BLOCK_TIME)
 
     def start(self):
-        asyncio.create_task(self.mine_block())
+        asyncio.create_task(self.forge_new_block())
 
     def stop(self):
         self.running = False
@@ -190,18 +173,18 @@ class StorageEngine:
                 'height': block.height,
                 'transactions': block.transactions,
                 'timestamp': block.timestamp,
-                'miner': block.miner,
+                'validator': block.validator,
                 'block_hash': block.block_hash,
                 'previous_block_hash': block.previous_block_hash
             }
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
             
-            # Update miner account balance with block reward
-            miner_balance = self.fetch_balance(block.miner)
-            if miner_balance is None:
-                self.db_accounts.put(block.miner.encode(), str(0).encode())
-            if miner_balance is not None:
-                self.db_accounts.put(block.miner.encode(), str(miner_balance + BLOCK_REWARD).encode())
+            # Update validator account balance with block reward
+            validator_balance = self.fetch_balance(block.validator)
+            if validator_balance is None:
+                self.db_accounts.put(block.validator.encode(), str(0).encode())
+            if validator_balance is not None:
+                self.db_accounts.put(block.validator.encode(), str(validator_balance + BLOCK_REWARD).encode())
 
             # Update account balances for transactions
             for transaction in block.transactions:
@@ -265,7 +248,7 @@ storage_engine.open_databases()
 validation_engine = ValidationEngine(storage_engine)
 mempool = Mempool(max_size=1000)
 last_block_data = storage_engine.fetch_last_block()
-miner = Miner(mempool, storage_engine, validation_engine, miner_public_key, last_block_data)
+validator = Forger(mempool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY, last_block_data)
 
 # API endpoints
 async def send_transaction(request):
@@ -278,7 +261,8 @@ async def send_transaction(request):
                 sender=transaction_data['sender'],
                 receiver=transaction_data['receiver'],
                 amount=int(transaction_data['amount']),
-                signature=transaction_data['signature']
+                signature=transaction_data['signature'],
+                memo=transaction_data.get('memo')
             )
             if validation_engine.validate_transaction(transaction):
                 mempool.add_transaction(transaction)
@@ -306,7 +290,7 @@ app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
 
 async def cleanup(app):
-    miner.stop()
+    validator.stop()
     await asyncio.gather(*[t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
     storage_engine.close()
 
@@ -322,7 +306,7 @@ if __name__ == '__main__':
     site = web.TCPSite(app_runner, host='0.0.0.0', port=5000)
     loop.run_until_complete(site.start())
 
-    loop.create_task(miner.mine_block()) 
+    loop.create_task(validator.forge_new_block()) 
     
     try:
         loop.run_forever()
