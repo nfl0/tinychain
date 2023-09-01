@@ -5,12 +5,10 @@ import blake3
 import logging
 import ecdsa
 from ecdsa import VerifyingKey
-import atexit
 import plyvel
 import json
 from jsonschema import validate
 import jsonschema
-
 
 app = web.Application()
 
@@ -31,13 +29,9 @@ transaction_schema = {
 }
 
 class Transaction:
-    def __init__(self, sender, receiver, amount, signature, memo=None):
-        self.sender = sender
-        self.receiver = receiver
-        self.amount = amount
-        self.signature = signature
-        self.memo = memo
-        self.message = f"{sender}-{receiver}-{amount}"
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+        self.message = f"{self.sender}-{self.receiver}-{self.amount}"
         self.transaction_hash = self.generate_transaction_hash()
 
     def generate_transaction_hash(self):
@@ -66,7 +60,6 @@ class Block:
             values.append(str(self.previous_block_hash))
         return blake3.blake3(''.join(values).encode()).hexdigest()
 
-
 class ValidationEngine:
     def __init__(self, storage_engine):
         self.storage_engine = storage_engine
@@ -74,9 +67,8 @@ class ValidationEngine:
     def validate_transaction(self, transaction):
         if isinstance(transaction, Transaction):
             sender_balance = self.storage_engine.fetch_balance(transaction.sender)
-            if sender_balance is not None and sender_balance >= transaction.amount:
-                if self.verify_transaction_signature(transaction):
-                    return True
+            if sender_balance is not None and sender_balance >= transaction.amount and self.verify_transaction_signature(transaction):
+                return True
         return False
 
     def verify_transaction_signature(self, transaction):
@@ -96,19 +88,16 @@ class Mempool:
 
     def add_transaction(self, transaction):
         if len(self.transactions) < self.max_size:
-            sender = transaction.sender
-            self.transactions[sender] = transaction
+            self.transactions[transaction.sender] = transaction
 
     def remove_transaction(self, transaction):
-        sender = transaction.sender
-        if sender in self.transactions:
-            del self.transactions[sender]
+        self.transactions.pop(transaction.sender, None)
 
     def get_transactions(self):
         return list(self.transactions.values())
 
     def is_empty(self):
-        return len(self.transactions) == 0
+        return not self.transactions
 
 class Forger:
     def __init__(self, mempool, storage_engine, validation_engine, validator_address, last_block_data):
@@ -160,10 +149,8 @@ class StorageEngine:
 
     def close_databases(self):
         try:
-            if self.db_blocks:
-                self.db_blocks.close()
-            if self.db_accounts:
-                self.db_accounts.close()
+            self.db_blocks.close()
+            self.db_accounts.close()
         except Exception as e:
             logging.error(f"Failed to close databases: {e}")
 
@@ -182,24 +169,18 @@ class StorageEngine:
             # Update validator account balance with block reward
             validator_balance = self.fetch_balance(block.validator)
             if validator_balance is None:
-                self.db_accounts.put(block.validator.encode(), str(0).encode())
-            if validator_balance is not None:
-                self.db_accounts.put(block.validator.encode(), str(validator_balance + BLOCK_REWARD).encode())
+                validator_balance = 0
+            self.db_accounts.put(block.validator.encode(), str(validator_balance + BLOCK_REWARD).encode())
 
             # Update account balances for transactions
             for transaction in block.transactions:
-                sender = transaction.sender
-                receiver = transaction.receiver
-                amount = transaction.amount
-                sender_balance = self.fetch_balance(sender)
+                sender, receiver, amount = transaction.sender, transaction.receiver, transaction.amount
+                sender_balance, receiver_balance = self.fetch_balance(sender), self.fetch_balance(receiver)
                 if sender_balance is not None:
                     self.db_accounts.put(sender.encode(), str(sender_balance - amount).encode())
-                receiver_balance = self.fetch_balance(receiver)
                 if receiver_balance is None:
-                    self.db_accounts.put(receiver.encode(), str(0).encode())
                     receiver_balance = 0
-                receiver_balance += amount
-                self.db_accounts.put(receiver.encode(), str(receiver_balance).encode())
+                self.db_accounts.put(receiver.encode(), str(receiver_balance + amount).encode())
 
             self.last_block_hash = block.block_hash
 
@@ -208,32 +189,19 @@ class StorageEngine:
             logging.error(f"Failed to store block: {e}")
 
     def fetch_balance(self, account_address):
-        try:
-            balance = self.db_accounts.get(account_address.encode())
-            if balance is not None:
-                return int(balance.decode())
-        except Exception as e:
-            logging.error(f"Failed to fetch balance: {e}")
-        return None
+        balance = self.db_accounts.get(account_address.encode())
+        return int(balance.decode()) if balance is not None else None
 
     def fetch_block(self, block_hash):
-        try:
-            block_data = self.db_blocks.get(block_hash.encode())
-            if block_data is not None:
-                return json.loads(block_data.decode())
-        except Exception as e:
-            logging.error(f"Failed to fetch block: {e}")
-        return None
+        block_data = self.db_blocks.get(block_hash.encode())
+        return json.loads(block_data.decode()) if block_data is not None else None
     
     def fetch_last_block(self):
         last_block = None
-        try:
-            for block_hash, block_data in self.db_blocks.iterator(reverse=True):
-                block_info = json.loads(block_data.decode())
-                if last_block is None or block_info['height'] > last_block['height']:
-                    last_block = block_info
-        except Exception as e:
-            logging.error(f"Failed to fetch last block: {e}")
+        for block_hash, block_data in self.db_blocks.iterator(reverse=True):
+            block_info = json.loads(block_data.decode())
+            if last_block is None or block_info['height'] > last_block['height']:
+                last_block = block_info
         return last_block
     
     def close(self):
@@ -257,13 +225,7 @@ async def send_transaction(request):
         transaction_data = data['transaction']
         try:
             validate(instance=transaction_data, schema=transaction_schema)
-            transaction = Transaction(
-                sender=transaction_data['sender'],
-                receiver=transaction_data['receiver'],
-                amount=int(transaction_data['amount']),
-                signature=transaction_data['signature'],
-                memo=transaction_data.get('memo')
-            )
+            transaction = Transaction(**transaction_data)
             if validation_engine.validate_transaction(transaction):
                 mempool.add_transaction(transaction)
                 return web.json_response({'message': 'Transaction added to mempool', 'transaction_hash': transaction.transaction_hash})
@@ -295,7 +257,6 @@ async def cleanup(app):
     storage_engine.close()
 
 app.on_cleanup.append(cleanup)
-
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
