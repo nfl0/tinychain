@@ -10,11 +10,11 @@ import json
 from jsonschema import validate
 import jsonschema
 
-app = web.Application()
+from transaction import Transaction
+from block import Block
+from parameters import BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, VALIDATOR_PUBLIC_KEY
 
-BLOCK_TIME = 5
-BLOCK_REWARD = 10
-VALIDATOR_PUBLIC_KEY = 'aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c'
+app = web.Application()
 
 transaction_schema = {
     "type": "object",
@@ -27,48 +27,21 @@ transaction_schema = {
     },
     "required": ["sender", "receiver", "amount", "signature"]
 }
-
-class Transaction:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-        self.message = f"{self.sender}-{self.receiver}-{self.amount}"
-        self.transaction_hash = self.generate_transaction_hash()
-
-    def generate_transaction_hash(self):
-        values = [str(self.sender), str(self.receiver), str(self.amount), str(self.signature)]
-        return blake3.blake3(''.join(values).encode()).hexdigest()
-
+    
 class TransactionEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Transaction):
-            return vars(obj)
+            return obj.to_dict()
         return super().default(obj)
-
-class Block:
-    def __init__(self, height, transactions, validator_address, previous_block_hash=None):
-        self.height = height
-        self.transactions = transactions
-        self.timestamp = int(time.time())
-        self.validator = validator_address
-        self.previous_block_hash = previous_block_hash
-        self.block_hash = self.generate_block_hash()
-
-    def generate_block_hash(self):
-        sorted_transaction_hashes = [t.transaction_hash for t in sorted(self.transactions, key=lambda t: t.transaction_hash)]
-        values = sorted_transaction_hashes + [str(self.timestamp)]
-        if self.previous_block_hash:
-            values.append(str(self.previous_block_hash))
-        return blake3.blake3(''.join(values).encode()).hexdigest()
 
 class ValidationEngine:
     def __init__(self, storage_engine):
         self.storage_engine = storage_engine
 
     def validate_transaction(self, transaction):
-        if isinstance(transaction, Transaction):
-            sender_balance = self.storage_engine.fetch_balance(transaction.sender)
-            if sender_balance is not None and sender_balance >= transaction.amount and self.verify_transaction_signature(transaction):
-                return True
+        sender_balance = self.storage_engine.fetch_balance(transaction.sender)
+        if sender_balance is not None and sender_balance >= transaction.amount and self.verify_transaction_signature(transaction):
+            return True
         return False
 
     def verify_transaction_signature(self, transaction):
@@ -85,17 +58,13 @@ class Mempool:
     def __init__(self, max_size):
         self.transactions = {}
         self.max_size = max_size
-
     def add_transaction(self, transaction):
         if len(self.transactions) < self.max_size:
             self.transactions[transaction.sender] = transaction
-
     def remove_transaction(self, transaction):
         self.transactions.pop(transaction.sender, None)
-
     def get_transactions(self):
         return list(self.transactions.values())
-
     def is_empty(self):
         return not self.transactions
 
@@ -107,7 +76,7 @@ class Forger:
         self.validator_address = validator_address
         self.running = True
         self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
-        self.block_height = last_block_data['height'] + 1 if last_block_data else 0
+        self.block_height = (last_block_data['height'] + 1) if last_block_data else 0
         self.block_timer = None
 
     async def forge_new_block(self):
@@ -115,7 +84,7 @@ class Forger:
             transactions_to_forge = self.mempool.get_transactions()
             valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
 
-            transactions_to_include = valid_transactions_to_forge[:3]
+            transactions_to_include = valid_transactions_to_forge[:MAX_TX_BLOCK]
 
             block = Block(self.block_height, transactions_to_include, self.validator_address, self.previous_block_hash)
             self.storage_engine.store_block(block)
@@ -157,20 +126,23 @@ class StorageEngine:
     def store_block(self, block):
         try:
             block_data = {
-                'height': block.height,
-                'transactions': block.transactions,
-                'timestamp': block.timestamp,
-                'validator': block.validator,
-                'block_hash': block.block_hash,
-                'previous_block_hash': block.previous_block_hash
+            'height': block.height,
+            'transactions': [transaction.to_dict() for transaction in block.transactions],
+            'timestamp': block.timestamp,
+            'validator': block.validator,
+            'block_hash': block.block_hash,
+            'previous_block_hash': block.previous_block_hash
             }
+
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
             
             # Update validator account balance with block reward
             validator_balance = self.fetch_balance(block.validator)
             if validator_balance is None:
                 validator_balance = 0
-            self.db_accounts.put(block.validator.encode(), str(validator_balance + BLOCK_REWARD).encode())
+            new_balance = validator_balance + BLOCK_REWARD
+            self.db_accounts.put(block.validator.encode(), str(new_balance).encode())
+
 
             # Update account balances for transactions
             for transaction in block.transactions:
