@@ -10,7 +10,7 @@ import jsonschema
 
 from transaction import Transaction
 from block import Block
-from parameters import BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, VALIDATOR_PUBLIC_KEY
+from parameters import BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, VALIDATOR_PUBLIC_KEY, PEER_ADDR
 
 app = web.Application()
 
@@ -52,7 +52,28 @@ class ValidationEngine:
         except ecdsa.BadSignatureError:
             return False
 
-class Mempool:
+    def validate_block(self, block):
+        # Check the block's structure and fields
+        if not isinstance(block, Block):
+            return False
+
+        # Check the block's timestamp, maybe add a validation rule here
+        # if block.timestamp > current_timestamp:
+        #     return False
+
+        # Check the block's transactions
+        for transaction in block.transactions:
+            if not self.validate_transaction(transaction):
+                return False
+
+        # Check the previous block hash
+        last_block_data = self.storage_engine.fetch_last_block()
+        if last_block_data and block.previous_block_hash != last_block_data['block_hash']:
+            return False
+
+        return True
+
+class TransactionPool:
     def __init__(self, max_size):
         self.transactions = {}
         self.max_size = max_size
@@ -67,8 +88,8 @@ class Mempool:
         return not self.transactions
 
 class Forger:
-    def __init__(self, mempool, storage_engine, validation_engine, validator_address, last_block_data):
-        self.mempool = mempool
+    def __init__(self, transactionpool, storage_engine, validation_engine, validator_address, last_block_data):
+        self.transactionpool = transactionpool
         self.storage_engine = storage_engine
         self.validation_engine = validation_engine
         self.validator_address = validator_address
@@ -79,19 +100,25 @@ class Forger:
 
     async def forge_new_block(self):
         while self.running:
-            transactions_to_forge = self.mempool.get_transactions()
+            transactions_to_forge = self.transactionpool.get_transactions()
             valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
 
-            transactions_to_include = valid_transactions_to_forge[:MAX_TX_BLOCK]
+            # Filter out already confirmed transactions
+            transactions_to_include = [t for t in valid_transactions_to_forge if t.confirmed is None][:MAX_TX_BLOCK]
 
             block = Block(self.block_height, transactions_to_include, self.validator_address, self.previous_block_hash)
-            self.storage_engine.store_block(block)
 
-            for transaction in transactions_to_include:
-                self.mempool.remove_transaction(transaction)
+            if self.validation_engine.validate_block(block):
+                for transaction in transactions_to_include:
+                    transaction.confirmed = self.block_height
 
-            self.previous_block_hash = block.block_hash
-            self.block_height += 1
+                self.storage_engine.store_block(block)
+
+                #for transaction in transactions_to_include:
+                #    self.transactionpool.remove_transaction(transaction)
+
+                self.previous_block_hash = block.block_hash
+                self.block_height += 1
 
             await asyncio.sleep(BLOCK_TIME)
 
@@ -184,9 +211,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 storage_engine = StorageEngine()
 storage_engine.open_databases()
 validation_engine = ValidationEngine(storage_engine)
-mempool = Mempool(max_size=1000)
+transactionpool = TransactionPool(max_size=1000)
 last_block_data = storage_engine.fetch_last_block()
-validator = Forger(mempool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY, last_block_data)
+validator = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY, last_block_data)
 
 # API endpoints
 async def send_transaction(request):
@@ -197,8 +224,8 @@ async def send_transaction(request):
             validate(instance=transaction_data, schema=transaction_schema)
             transaction = Transaction(**transaction_data)
             if validation_engine.validate_transaction(transaction):
-                mempool.add_transaction(transaction)
-                return web.json_response({'message': 'Transaction added to mempool', 'transaction_hash': transaction.transaction_hash})
+                transactionpool.add_transaction(transaction)
+                return web.json_response({'message': 'Transaction added to the transaction pool', 'transaction_hash': transaction.transaction_hash})
         except jsonschema.exceptions.ValidationError:
             pass
     return web.json_response({'error': 'Invalid transaction data'}, status=400)

@@ -6,6 +6,7 @@ class Transaction:
         self.message = f"{self.sender}-{self.receiver}-{self.amount}"
         self.transaction_hash = self.generate_transaction_hash()
         self.memo = kwargs.get('memo', '')
+        self.confirmed = None
 
     def generate_transaction_hash(self):
         values = [str(self.sender), str(self.receiver), str(self.amount), str(self.signature)]
@@ -18,4 +19,5 @@ class Transaction:
             'amount': self.amount,
             'signature': self.signature,
             'memo': self.memo,
+            'confirmed': self.confirmed
         }
