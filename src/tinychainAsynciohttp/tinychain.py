@@ -157,12 +157,13 @@ class SmartContractEngine:
             self.update_balance(sender, -amount)
             self.update_balance(receiver, amount)
             if memo is not None:
-                if memo == "stake" and receiver == self.stakingContractAddress:
-                    # update the staking contract state
-                    print(amount, " tinycoins staked!")
-                elif memo == "unstake" and receiver == self.stakingContractAddress:
-                    # update the staking contract state
-                    print(amount, " tinycoins unstaked!")
+                if receiver == self.stakingContractAddress: # a system-defined contract
+                    if memo == "stake":
+                        self.stake(sender, amount)
+                    elif memo == "unstake":
+                        self.unstake(sender)
+                    else:
+                        print("Invalid memo: 'stake' or 'unstake'")
                 else:
                     logging.info(f"Memo content: {memo}")
 
@@ -173,16 +174,80 @@ class SmartContractEngine:
         new_balance = current_balance + amount
         self.storage_engine.db_accounts.put(account_address.encode(), str(new_balance).encode())
 
+    def stake(self, account_address, amount):
+        # Load the current staking state for the account
+        staking_state = self.storage_engine.fetch_contract_state(account_address)
+
+        # Check if the account has an existing staking state
+        if staking_state is None:
+            staking_state = {"balance": 0}
+
+        # Update the staking state by adding the staked amount
+        staked_balance = staking_state.get("balance", 0)
+        new_staked_balance = staked_balance + amount
+
+        # Update the staking state data
+        staking_state["balance"] = new_staked_balance
+
+        # Store the updated staking state
+        self.storage_engine.store_contract_state(account_address, staking_state)
+
+        # Log the staking operation
+        print(f"{account_address} staked {amount} tokens. New staked balance: {new_staked_balance}")
+
+    def unstake(self, account_address):
+        # Load the current staking state for the account
+        staking_state = self.storage_engine.fetch_contract_state(account_address)
+
+        # Check if the account has an existing staking state
+        if staking_state is None:
+            staking_state = {"balance": 0}
+
+        # Get the current staked balance
+        staked_balance = staking_state.get("balance", 0)
+
+        # Check if there are staked tokens to unstake
+        if staked_balance > 0:
+            # Perform the unstaking operation (e.g., release locked tokens)
+            # Here, we'll assume that the entire staked balance is released.
+            # You can implement more complex unstaking logic as needed.
+            released_balance = staked_balance
+
+            # Update the staking state data after unstaking
+            staking_state["balance"] = 0  # Reset staked balance to zero
+
+            # Store the updated staking state
+            self.storage_engine.store_contract_state(account_address, staking_state)
+
+            # Add the released balance back to the account's balance
+            self.update_balance(account_address, released_balance)
+
+            # Log the unstaking operation
+            print(f"{account_address} unstaked {released_balance} tokens. Staked balance reset to zero.")
+        else:
+            # No staked tokens to unstake
+            print(f"{account_address} has no staked tokens to unstake.")
+
+    def update_contract_state(self, contract_address, state_data):
+        current_state = self.storage_engine.fetch_contract_state(contract_address)
+        if current_state is None:
+            current_state = {}
+        current_state.update(state_data)
+        self.storage_engine.store_contract_state(contract_address, current_state)
+
+
 class StorageEngine:
     def __init__(self):
         self.db_blocks = None
         self.db_accounts = None
+        self.db_states = None
         self.last_block_hash = None
 
     def open_databases(self):
         try:
             self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
             self.db_accounts = plyvel.DB('accounts.db', create_if_missing=True)
+            self.db_states = plyvel.DB('contract_states.db', create_if_missing=True)
         except Exception as e:
             logging.error(f"Failed to open databases: {e}")
 
@@ -206,9 +271,7 @@ class StorageEngine:
 
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
             
-            # Use the VM class to update account balances
-            vm = SmartContractEngine(self)
-            vm.execute_block(block)
+            contract_engine.execute_block(block)
 
             self.last_block_hash = block.block_hash
 
@@ -232,6 +295,17 @@ class StorageEngine:
                 last_block = block_info
         return last_block
     
+    def store_contract_state(self, contract_address, state_data):
+        try:
+            self.db_states.put(contract_address.encode(), json.dumps(state_data).encode())
+            logging.info(f"Stored contract state for address: {contract_address}")
+        except Exception as e:
+            logging.error(f"Failed to store contract state: {e}")
+
+    def fetch_contract_state(self, contract_address):
+        state_data = self.db_states.get(contract_address.encode())
+        return json.loads(state_data.decode()) if state_data is not None else None
+    
     def close(self):
         self.close_databases()
 
@@ -246,6 +320,7 @@ validation_engine = ValidationEngine(storage_engine)
 transactionpool = TransactionPool(max_size=MAX_TX_POOL)
 last_block_data = storage_engine.fetch_last_block()
 validator = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY, last_block_data)
+contract_engine = SmartContractEngine(storage_engine)
 
 # API endpoints
 async def send_transaction(request):
