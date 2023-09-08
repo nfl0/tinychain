@@ -7,13 +7,12 @@ import plyvel
 import json
 from jsonschema import validate
 import jsonschema
-import blake3
-import websockets
+import aiohttp
+from jsonrpcserver import method, async_dispatch as dispatch
 
+from transaction import Transaction
 from block import Block
-from parameters import PORT, BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
-
-PEER_ADDR = 'ws://127.0.0.1:5001'
+from parameters import BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, VALIDATOR_PUBLIC_KEY, PEER_ADDR, POOL_MAX_TX, PORT
 
 app = web.Application()
 
@@ -24,32 +23,11 @@ transaction_schema = {
         "receiver": {"type": "string"},
         "amount": {"type": "number"},
         "signature": {"type": "string"},
-        "memo": {"type": "string"}
+        "memo": {"type": "string"},
+        "confirmed": {"type": "integer"}  # Include the 'confirmed' field
     },
     "required": ["sender", "receiver", "amount", "signature"]
 }
-
-class Transaction:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-        self.message = f"{self.sender}-{self.receiver}-{self.amount}-{self.memo}"
-        self.transaction_hash = self.generate_transaction_hash()
-        self.memo = kwargs.get('memo', '')
-        self.confirmed = None
-
-    def generate_transaction_hash(self):
-        values = [str(self.sender), str(self.receiver), str(self.amount), str(self.signature)]
-        return blake3.blake3(''.join(values).encode()).hexdigest()
-
-    def to_dict(self):
-        return {
-            'sender': self.sender,
-            'receiver': self.receiver,
-            'amount': self.amount,
-            'signature': self.signature,
-            'memo': self.memo,
-            'confirmed': self.confirmed
-        }
 
 class TransactionEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -81,10 +59,21 @@ class ValidationEngine:
         # Check the block's structure and fields
         if not isinstance(block, Block):
             return False
+
+        # Check the block's timestamp, maybe add a validation rule here
+        # if block.timestamp > current_timestamp:
+        #     return False
+
         # Check the block's transactions
         for transaction in block.transactions:
             if not self.validate_transaction(transaction):
                 return False
+
+        # Check the previous block hash
+        last_block_data = self.storage_engine.fetch_last_block()
+        if last_block_data and block.previous_block_hash != last_block_data['block_hash']:
+            return False
+
         return True
 
 class TransactionPool:
@@ -117,7 +106,6 @@ class Forger:
             transactions_to_forge = self.transactionpool.get_transactions()
             valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
 
-            # Filter out already confirmed transactions
             transactions_to_include = [t for t in valid_transactions_to_forge if t.confirmed is None][:MAX_TX_BLOCK]
 
             block = Block(self.block_height, transactions_to_include, self.validator_address, self.previous_block_hash)
@@ -127,9 +115,6 @@ class Forger:
                     transaction.confirmed = self.block_height
 
                 self.storage_engine.store_block(block)
-
-                for transaction in transactions_to_include:
-                    self.transactionpool.remove_transaction(transaction)
 
                 self.previous_block_hash = block.block_hash
                 self.block_height += 1
@@ -141,43 +126,6 @@ class Forger:
 
     def stop(self):
         self.running = False
-
-class SmartContractEngine:
-    def __init__(self, storage_engine):
-        self.storage_engine = storage_engine
-
-    def execute_block(self, block):
-        # Update validator account balance with block reward
-        self.update_balance(block.validator, BLOCK_REWARD)
-
-        # Update account balances for transactions
-        for transaction in block.transactions:
-            sender, receiver, amount = transaction.sender, transaction.receiver, transaction.amount
-            self.update_balance(sender, -amount)  # Subtract from sender
-            self.update_balance(receiver, amount)  # Add to receiver
-
-        # Execute smart contracts
-        self.execute_smart_contracts(block)
-
-    def execute_smart_contracts(self, block):
-        for transaction in block.transactions:
-            memo = transaction.memo
-            if memo:
-                self.log_memo_content(memo)
-
-    def log_memo_content(self, memo):
-        # Here, you can implement the logic to process the memo content.
-        # For now, let's just log it.
-        logging.info(f"Memo content: {memo}")
-
-    def update_balance(self, account_address, amount):
-        current_balance = self.storage_engine.fetch_balance(account_address)
-        if current_balance is None:
-            current_balance = 0
-        new_balance = current_balance + amount
-        self.storage_engine.db_accounts.put(account_address.encode(), str(new_balance).encode())
-
-
 
 class StorageEngine:
     def __init__(self):
@@ -202,19 +150,32 @@ class StorageEngine:
     def store_block(self, block):
         try:
             block_data = {
-            'height': block.height,
-            'transactions': [transaction.to_dict() for transaction in block.transactions],
-            'timestamp': block.timestamp,
-            'validator': block.validator,
-            'block_hash': block.block_hash,
-            'previous_block_hash': block.previous_block_hash
+                'height': block.height,
+                'transactions': [transaction.to_dict() for transaction in block.transactions],
+                'timestamp': block.timestamp,
+                'validator': block.validator,
+                'block_hash': block.block_hash,
+                'previous_block_hash': block.previous_block_hash
             }
 
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
-            
-            # Use the VM class to update account balances
-            vm = SmartContractEngine(self)
-            vm.execute_block(block)
+
+            # Update validator account balance with block reward
+            validator_balance = self.fetch_balance(block.validator)
+            if validator_balance is None:
+                validator_balance = 0
+            new_balance = validator_balance + BLOCK_REWARD
+            self.db_accounts.put(block.validator.encode(), str(new_balance).encode())
+
+            # Update account balances for transactions
+            for transaction in block.transactions:
+                sender, receiver, amount = transaction.sender, transaction.receiver, transaction.amount
+                sender_balance, receiver_balance = self.fetch_balance(sender), self.fetch_balance(receiver)
+                if sender_balance is not None:
+                    self.db_accounts.put(sender.encode(), str(sender_balance - amount).encode())
+                if receiver_balance is None:
+                    receiver_balance = 0
+                self.db_accounts.put(receiver.encode(), str(receiver_balance + amount).encode())
 
             self.last_block_hash = block.block_hash
 
@@ -229,7 +190,7 @@ class StorageEngine:
     def fetch_block(self, block_hash):
         block_data = self.db_blocks.get(block_hash.encode())
         return json.loads(block_data.decode()) if block_data is not None else None
-    
+
     def fetch_last_block(self):
         last_block = None
         for block_hash, block_data in self.db_blocks.iterator(reverse=True):
@@ -237,10 +198,9 @@ class StorageEngine:
             if last_block is None or block_info['height'] > last_block['height']:
                 last_block = block_info
         return last_block
-    
+
     def close(self):
         self.close_databases()
-
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -249,9 +209,61 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 storage_engine = StorageEngine()
 storage_engine.open_databases()
 validation_engine = ValidationEngine(storage_engine)
-transactionpool = TransactionPool(max_size=MAX_TX_POOL)
+transactionpool = TransactionPool(max_size=POOL_MAX_TX)
 last_block_data = storage_engine.fetch_last_block()
 validator = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY, last_block_data)
+
+# JSON-RPC Methods
+
+@method
+async def get_transaction_pool():
+    return transactionpool.get_transactions()
+
+@method
+async def update_transaction_pool(transactions):
+    try:
+        # Assuming that 'transactions' is a list of transaction dictionaries
+        for tx_data in transactions:
+            try:
+                validate(instance=tx_data, schema=transaction_schema)
+                transaction = Transaction(**tx_data)
+                if validation_engine.validate_transaction(transaction):
+                    transactionpool.add_transaction(transaction)
+                else:
+                    print(f"Transaction validation failed: {transaction}")
+            except jsonschema.exceptions.ValidationError as e:
+                print(f"Validation error: {e}")
+        return True
+    except Exception as e:
+        print(f"Error in update_transaction_pool: {e}")
+        return False
+
+
+async def broadcast_transaction(transaction_data):
+    # Assuming PEER_ADDR is a list of URLs of other nodes
+    for peer_url in PEER_ADDR:
+        try:
+            async with aiohttp.ClientSession() as session:
+                request_data = {
+                    "jsonrpc": "2.0",
+                    "method": "update_transaction_pool",
+                    "params": [transaction_data],
+                    "id": 1,
+                }
+                async with session.post(peer_url, json=request_data) as response:
+                    if response.status == 200:
+                        try:
+                            response_data = await response.json()
+                            print(f"Response from peer {peer_url}: {response_data}")
+                            if "error" in response_data:
+                                print(f"Error from peer {peer_url}: {response_data['error']}")
+                        except Exception as e:
+                            print(f"Error parsing response from peer {peer_url}: {str(e)}")
+                    else:
+                        print(f"HTTP error from peer {peer_url}: {response.status}")
+        except Exception as e:
+            print(f"Error while broadcasting transaction to {peer_url}: {str(e)}")
+
 
 # API endpoints
 async def send_transaction(request):
@@ -262,6 +274,8 @@ async def send_transaction(request):
             validate(instance=transaction_data, schema=transaction_schema)
             transaction = Transaction(**transaction_data)
             if validation_engine.validate_transaction(transaction):
+                # Broadcast the transaction to other nodes
+                await broadcast_transaction(transaction.to_dict())
                 transactionpool.add_transaction(transaction)
                 return web.json_response({'message': 'Transaction added to the transaction pool', 'transaction_hash': transaction.transaction_hash})
         except jsonschema.exceptions.ValidationError:
@@ -286,6 +300,13 @@ app.router.add_post('/send_transaction', send_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
 
+# JSON-RPC endpoint
+async def handle_rpc(request):
+    response = await dispatch(await request.text())
+    return web.json_response(response)
+
+app.router.add_post('/rpc', handle_rpc)
+
 async def cleanup(app):
     validator.stop()
     await asyncio.gather(*[t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
@@ -298,12 +319,12 @@ if __name__ == '__main__':
 
     app_runner = web.AppRunner(app)
     loop.run_until_complete(app_runner.setup())
-    
+
     site = web.TCPSite(app_runner, host='0.0.0.0', port=PORT)
     loop.run_until_complete(site.start())
 
-    loop.create_task(validator.forge_new_block()) 
-    
+    loop.create_task(validator.forge_new_block())
+
     try:
         loop.run_forever()
     except KeyboardInterrupt:

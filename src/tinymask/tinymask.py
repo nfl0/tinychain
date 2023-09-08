@@ -19,8 +19,10 @@ def create_transaction(sender, receiver, amount, sender_key):
         'sender': sender.hex(),
         'receiver': receiver.hex(),
         'amount': amount,
+        'memo': 'sent from tinymask',
+        'fee': 1
     }
-    message = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}"
+    message = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}-{transaction['memo']}"
     signature = sender_key.sign(message.encode()).hex()
     transaction['signature'] = signature
     transaction['message'] = message
@@ -118,11 +120,11 @@ if __name__ == '__main__':
             print("Invalid option. Please select a valid option.")
 
         # Periodically fetch account balance every 6 seconds
-        balance_fetch_interval = 6  # seconds
-        start_time = time.time()
-        while time.time() - start_time < balance_fetch_interval:
-            sender_balance = get_balance(sender_address)
-            print(f"Sender Balance: {sender_balance.get('balance', 'N/A')}")
+        #balance_fetch_interval = 6  # seconds
+        #start_time = time.time()
+        #while time.time() - start_time < balance_fetch_interval:
+        #    sender_balance = get_balance(sender_address)
+        #    print(f"Sender Balance: {sender_balance.get('balance', 'N/A')}")
 
             # Wait for a short interval before fetching balance again
-            time.sleep(1)
+        #    time.sleep(1)
