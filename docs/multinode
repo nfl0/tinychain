@@ -5,5 +5,3 @@ To implement a TinyChain blockchain system that supports up to 2 nodes with a RA
 - Inter-Node Communication: the WebSocket communication to allow Node A and Node B to send and receive blocks and transactions between each other. When a new block is forged on one node, it should be broadcasted to the other node over WebSocket.
 - Data Protection: implement error handling and recovery mechanisms in case one of the nodes goes down or experiences data corruption. Consider mechanisms for automatic data recovery
 - Monitoring: Implement robust monitoring and logging to track the status and health of both nodes. Set up alerts and notifications for any critical issues or failures.
-
-

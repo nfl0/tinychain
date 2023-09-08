@@ -145,6 +145,7 @@ class Forger:
 class SmartContractEngine:
     def __init__(self, storage_engine):
         self.storage_engine = storage_engine
+        self.stakingContractAddress = "50c43f64ba255a95ab641978af7009eecef03610d120eb35035fdb0ea3c1b7f05859382f117ff396230b7cb453992d3b0da1c03f8a0572086eb938862bf6d77e"
 
     def execute_block(self, block):
         # Update validator account balance with block reward
@@ -153,10 +154,17 @@ class SmartContractEngine:
         # Update account balances for transactions
         for transaction in block.transactions:
             sender, receiver, amount, memo = transaction.sender, transaction.receiver, transaction.amount, transaction.memo
-            self.update_balance(sender, -amount)  # Subtract from sender
-            self.update_balance(receiver, amount)  # Add to receiver
+            self.update_balance(sender, -amount)
+            self.update_balance(receiver, amount)
             if memo is not None:
-                logging.info(f"Memo content: {memo}")
+                if memo == "stake" and receiver == self.stakingContractAddress:
+                    # update the staking contract state
+                    print(amount, " tinycoins staked!")
+                elif memo == "unstake" and receiver == self.stakingContractAddress:
+                    # update the staking contract state
+                    print(amount, " tinycoins unstaked!")
+                else:
+                    logging.info(f"Memo content: {memo}")
 
     def update_balance(self, account_address, amount):
         current_balance = self.storage_engine.fetch_balance(account_address)

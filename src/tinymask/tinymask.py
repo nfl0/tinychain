@@ -19,7 +19,7 @@ def create_transaction(sender, receiver, amount, sender_key):
         'sender': sender.hex(),
         'receiver': receiver.hex(),
         'amount': amount,
-        'memo': 'sent from tinymask',
+        'memo': 'stake',
         'fee': 1
     }
     message = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}-{transaction['memo']}"
