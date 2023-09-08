@@ -152,23 +152,11 @@ class SmartContractEngine:
 
         # Update account balances for transactions
         for transaction in block.transactions:
-            sender, receiver, amount = transaction.sender, transaction.receiver, transaction.amount
+            sender, receiver, amount, memo = transaction.sender, transaction.receiver, transaction.amount, transaction.memo
             self.update_balance(sender, -amount)  # Subtract from sender
             self.update_balance(receiver, amount)  # Add to receiver
-
-        # Execute smart contracts
-        self.execute_smart_contracts(block)
-
-    def execute_smart_contracts(self, block):
-        for transaction in block.transactions:
-            memo = transaction.memo
-            if memo:
-                self.log_memo_content(memo)
-
-    def log_memo_content(self, memo):
-        # Here, you can implement the logic to process the memo content.
-        # For now, let's just log it.
-        logging.info(f"Memo content: {memo}")
+            if memo is not None:
+                logging.info(f"Memo content: {memo}")
 
     def update_balance(self, account_address, amount):
         current_balance = self.storage_engine.fetch_balance(account_address)
@@ -176,8 +164,6 @@ class SmartContractEngine:
             current_balance = 0
         new_balance = current_balance + amount
         self.storage_engine.db_accounts.put(account_address.encode(), str(new_balance).encode())
-
-
 
 class StorageEngine:
     def __init__(self):
