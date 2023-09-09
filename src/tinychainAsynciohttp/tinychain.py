@@ -1,3 +1,9 @@
+#todos
+# better (system-defined) smart contract address generation
+# account-like address
+# system-defined smart contracts get generated and initiated with the first block (gotta genesis block? hmm)
+# remove the accounts database, they part of the tvm ain they!
+
 from aiohttp import web
 import asyncio
 import logging
@@ -219,8 +225,6 @@ class TinyVMEngine:
 
         # Log the decrease operation
         print(f"Counter at address {contract_address} decreased to {new_value}")
-
-
 
     def stake(self, contract_address, account_address, amount):
         # Load the current staking state for the contract
