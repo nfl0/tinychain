@@ -1,0 +1,7 @@
+#todos
+
+# remove the accounts database, they part of the tvm ain they!
+
+private_key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
+public_key = private_key.get_verifying_key()
+print (public_key)
