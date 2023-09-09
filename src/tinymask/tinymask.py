@@ -19,7 +19,7 @@ def create_transaction(sender, receiver, amount, sender_key):
         'sender': sender.hex(),
         'receiver': receiver.hex(),
         'amount': amount,
-        'memo': 'unstake',
+        'memo': 'stake',
         'fee': 1
     }
     message = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}-{transaction['memo']}"
@@ -103,7 +103,12 @@ if __name__ == '__main__':
                 print("Transaction Response:", response)
 
             elif option == 3:
-                custom_address = bytes.fromhex(input("Enter custom address:"))
+                input_string = input("Enter custom address:")
+                hex_chunks = [input_string[i:i+2] for i in range(0, len(input_string), 2)]
+
+                custom_address = bytes.fromhex(''.join(hex_chunks))
+
+
                 amount = int(input("Enter amount to send:"))
 
                 transaction = create_transaction(sender_address, custom_address, amount, private_key)
