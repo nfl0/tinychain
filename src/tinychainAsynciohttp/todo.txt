@@ -1,7 +1,4 @@
 #todos
 
+# a tvm contract state isnt stored to the database until the end of block execution. this to reduce reads and writes 
 # remove the accounts database, they part of the tvm ain they!
-
-private_key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
-public_key = private_key.get_verifying_key()
-print (public_key)
