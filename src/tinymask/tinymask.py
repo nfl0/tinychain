@@ -14,13 +14,12 @@ def generate_keypair(filename):
         pickle.dump(private_key, file)
     return private_key, public_key
 
-def create_transaction(sender, receiver, amount, sender_key):
+def create_transaction(sender, receiver, amount, memo, sender_key):
     transaction = {
         'sender': sender.hex(),
         'receiver': receiver.hex(),
         'amount': amount,
-        'memo': 'stake',
-        'fee': 1
+        'memo': memo,
     }
     message = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}-{transaction['memo']}"
     signature = sender_key.sign(message.encode()).hex()
@@ -44,7 +43,8 @@ def print_wallet_menu():
     print("1. Generate New Wallet")
     print("2. Send Funds")
     print("3. Send to Custom Address")
-    print("4. Exit")
+    print("4. Send Preset Transactions")
+    print("5. Exit")
 
 if __name__ == '__main__':
     os.makedirs(WALLET_PATH, exist_ok=True)
@@ -95,8 +95,9 @@ if __name__ == '__main__':
                     receiver_address = receiving_public_key.to_string()
 
                 amount = int(input("Enter amount to send:"))
+                memo = "send to self"
 
-                transaction = create_transaction(sender_address, receiver_address, amount, private_key)
+                transaction = create_transaction(sender_address, receiver_address, amount, memo, private_key)
                 print("Created Transaction:", transaction)
 
                 response = send_transaction(transaction)
@@ -110,14 +111,63 @@ if __name__ == '__main__':
 
 
                 amount = int(input("Enter amount to send:"))
+                memo = "send to custom"
 
-                transaction = create_transaction(sender_address, custom_address, amount, private_key)
+                transaction = create_transaction(sender_address, custom_address, amount, memo, private_key)
                 print("Created Transaction:", transaction)
 
                 response = send_transaction(transaction)
                 print("Transaction Response:", response)
-
         elif option == 4:
+            wallet_files = [f for f in os.listdir(WALLET_PATH) if f.startswith("wallet") and f.endswith(".dat")]
+            if not wallet_files:
+                print("No wallets found. Generate wallets first.")
+                continue
+
+            print("Select sending wallet:")
+            for idx, wallet_file in enumerate(wallet_files):
+                print(f"{idx + 1}. {wallet_file}")
+            sending_option = int(input()) - 1
+
+            if sending_option < 0 or sending_option >= len(wallet_files):
+                print("Invalid option.")
+                continue
+
+            sending_wallet = wallet_files[sending_option]
+            with open(os.path.join(WALLET_PATH, sending_wallet), "rb") as file:
+                private_key = pickle.load(file)
+                public_key = private_key.get_verifying_key()
+                sender_address = public_key.to_string()
+
+            for _ in range(2):  # Send two preset transactions
+                transactions = [
+                    {
+                        'sender': sender_address.hex(),
+                        'receiver': "1111",
+                        'amount': 3,
+                        'memo': 'stake'
+                    },
+                    {
+                        'sender': sender_address.hex(),
+                        'receiver': "1111",
+                        'amount': 1,
+                        'memo': 'stake'
+                    }
+                ]
+
+                for transaction in transactions:
+                    receiver_address = bytes.fromhex(transaction['receiver'])
+                    memo = transaction['memo']
+                    amount = transaction['amount']
+                    formatted_transaction = create_transaction(sender_address, receiver_address, amount, memo, private_key)
+                    
+                    response = send_transaction(formatted_transaction)
+                    print("Transaction Response:", response)
+
+                time.sleep(0.5)  # Wait for half a second before sending the next preset transactions
+
+            print("Preset transactions sent to custom addresses.")
+        elif option == 5:
             print("Exiting.")
             break
 

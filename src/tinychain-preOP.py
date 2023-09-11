@@ -145,90 +145,120 @@ class Forger:
 class TinyVMEngine:
     def __init__(self, storage_engine):
         self.storage_engine = storage_engine
-        self.accounts_contract_address = "6163636f756e7473"  # Hexadecimal representation of "accounts"
-        self.staking_contract_address = "1111"
+        self.contract_state_memory = {}
+        #self.accounts_contract_address = "1111"
+        self.staking_contract_address = "2222"
+        self.counter_contract_address = "3333"
 
     def execute_block(self, block):
         # Update validator account balance with block reward
         self.update_balance(block.validator, BLOCK_REWARD)
 
         for transaction in block.transactions:
-            sender, receiver, amount, memo = (
-                transaction.sender,
-                transaction.receiver,
-                transaction.amount,
-                transaction.memo,
-            )
-            self.update_balance(sender, -amount)
-            self.update_balance(receiver, amount)
-
+            sender, receiver, amount, memo = transaction.sender, transaction.receiver, transaction.amount, transaction.memo
+            #self.execute_account_contract(self.accounts_contract_address , sender, receiver, amount)
+            self.execute_account_contract(sender, receiver, amount)
             if memo is not None:
                 if receiver == self.staking_contract_address:
                     if memo in ("stake", "unstake"):
-                        self.execute_staking_contract(
-                            self.staking_contract_address, sender, amount, memo
-                        )
+                        self.execute_staking_contract(self.staking_contract_address, sender, amount, memo)
                     else:
-                        logging.info("Invalid memo. Try 'stake' or 'unstake'")
+                        logging.info("Invalid memo. try 'stake' or 'unstake'")
+                elif receiver == self.counter_contract_address:
+                    if memo in ("increase", "decrease"):
+                        self.execute_counter_contract(self.counter_contract_address, memo)
+                    else:
+                        logging.info("Invalid memo. try 'increase' or 'decrease'")
                 else:
                     logging.info(f"Memo content: {memo}")
 
+    #def account_contract(self,contract_address, sender, receiver, amount):
+    def execute_account_contract(self, sender, receiver, amount):
+        self.update_balance(sender, -amount)
+        self.update_balance(receiver, amount)
+
     def execute_staking_contract(self, contract_address, account_address, amount, operation):
-        staking_state = self.get_contract_state(contract_address)
+        staking_state = self.storage_engine.fetch_contract_state(contract_address)
         if staking_state is None:
             staking_state = {}
         staked_balance = staking_state.get(account_address, 0)
         if operation == "stake":
             new_staked_balance = staked_balance + amount
             staking_state[account_address] = new_staked_balance
-            self.store_contract_state(contract_address, staking_state)
-            logging.info(
-                f"{account_address} staked {amount} tokens for contract {contract_address}. New staked balance: {new_staked_balance}"
-            )
+            self.update_contract_state(contract_address, staking_state)
+            logging.info(f"{account_address} staked {amount} tokens for contract {contract_address}. New staked balance: {new_staked_balance}")
         elif operation == "unstake":
             if staked_balance > 0:
                 released_balance = staked_balance
                 staking_state[account_address] = 0  # Reset staked balance to zero
-                self.store_contract_state(contract_address, staking_state)
+                self.update_contract_state(contract_address, staking_state)
                 # Update the account's balance by adding the released tokens
                 self.update_balance(account_address, released_balance)
-                logging.info(
-                    f"{account_address} unstaked {released_balance} tokens for contract {contract_address}. Staked balance reset to zero."
-                )
+                logging.info(f"{account_address} unstaked {released_balance} tokens for contract {contract_address}. Staked balance reset to zero.")
             else:
                 # No staked tokens to unstake
-                logging.info(
-                    f"{account_address} has no staked tokens for contract {contract_address} to unstake."
-                )
+                logging.info(f"{account_address} has no staked tokens for contract {contract_address} to unstake.")
         else:
-            logging.info("Invalid operation. Try 'stake' or 'unstake'")
+            logging.info("Invalid operation. try 'stake' or 'unstake'")
+
+    def execute_counter_contract(self, contract_address, operation):
+        contract_state = self.storage_engine.fetch_contract_state(contract_address)
+        if contract_state is None:
+            contract_state = {"value": 0}
+        current_value = contract_state.get("value", 0)
+
+        if operation == "increase":
+            new_value = current_value + 1
+        elif operation == "decrease":
+            new_value = max(current_value - 1, 0)
+        else:
+            logging.info("Invalid operation. try 'increase' or 'decrease'")
+
+        contract_state["value"] = new_value
+        self.update_contract_state(contract_address, contract_state)
+        logging.info(
+            f"Counter at address {contract_address} {operation}d to {new_value}"
+        )
 
     def update_balance(self, account_address, amount):
-        # Update the account balance by storing it in the accounts contract
-        accounts_state = self.get_contract_state(self.accounts_contract_address)
-        if accounts_state is None:
-            accounts_state = {}
-        current_balance = accounts_state.get(account_address, 0)
+        current_balance = self.storage_engine.fetch_balance(account_address)
+        if current_balance is None:
+            current_balance = 0
         new_balance = current_balance + amount
-        accounts_state[account_address] = new_balance
-        self.store_contract_state(self.accounts_contract_address, accounts_state)
+        self.storage_engine.db_accounts.put(account_address.encode(), str(new_balance).encode())
+
+    def update_contract_state(self, contract_address, state_data):
+        # Instead of directly updating the contract state in the storage engine, collect changes
+        current_state = self.get_contract_state(contract_address)  # Use the new get_contract_state method
+        if current_state is None:
+            current_state = {}
+        current_state.update(state_data)
+        self.contract_state_memory[contract_address] = current_state
 
     def get_contract_state(self, contract_address):
+        # First, check if the contract's state is in memory
+        if contract_address in self.contract_state_memory:
+            return self.contract_state_memory[contract_address]
+        # If not in memory, fetch it from the storage engine
         return self.storage_engine.fetch_contract_state(contract_address)
 
-    def store_contract_state(self, contract_address, state_data):
-        self.storage_engine.store_contract_state(contract_address, state_data)
-
+    def finalize_block(self):
+        # Store all collected contract state changes at the end of block execution
+        for contract_address, state_data in self.contract_state_memory.items():
+            self.storage_engine.store_contract_state(contract_address, state_data)
+        self.contract_state_memory = {}  # Reset the state changes
 
 class StorageEngine:
     def __init__(self):
         self.db_blocks = None
+        self.db_accounts = None
         self.db_states = None
         self.last_block_hash = None
 
     def open_databases(self):
         try:
             self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
+            self.db_accounts = plyvel.DB('accounts.db', create_if_missing=True)
             self.db_states = plyvel.DB('tvm_states.db', create_if_missing=True)
         except Exception as e:
             logging.error(f"Failed to open databases: {e}")
@@ -236,7 +266,7 @@ class StorageEngine:
     def close_databases(self):
         try:
             self.db_blocks.close()
-            self.db_states.close()
+            self.db_accounts.close()
         except Exception as e:
             logging.error(f"Failed to close databases: {e}")
 
@@ -255,6 +285,9 @@ class StorageEngine:
             
             tvm_engine.execute_block(block)
 
+            # Call finalize_block to store contract state changes at the end of each block
+            tvm_engine.finalize_block()
+
             self.last_block_hash = block.block_hash
 
             logging.info(f"Stored block: {block.block_hash}")
@@ -262,11 +295,8 @@ class StorageEngine:
             logging.error(f"Failed to store block: {e}")
 
     def fetch_balance(self, account_address):
-        # Fetch the balance from the accounts contract state
-        accounts_state = self.fetch_contract_state("6163636f756e7473")
-        if accounts_state is not None:
-            return accounts_state.get(account_address, None)
-        return None
+        balance = self.db_accounts.get(account_address.encode())
+        return int(balance.decode()) if balance is not None else None
 
     def fetch_block(self, block_hash):
         block_data = self.db_blocks.get(block_hash.encode())

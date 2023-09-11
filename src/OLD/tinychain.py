@@ -271,6 +271,13 @@ def get_block_by_hash(block_hash):
         return jsonify(block_data)
     return jsonify({'error': 'Block not found'}), 404
 
+@app.route('/get_balance/<string:account_address>', methods=['GET'])
+def get_balance(account_address):
+    balance = storage_engine.fetch_balance(account_address)
+    if balance is not None:
+        return jsonify({'balance': balance})
+    return jsonify({'error': 'Account not found'}), 404
+
 stop_event = threading.Event()
 def cleanup():
     stop_event.set()
