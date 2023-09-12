@@ -95,7 +95,7 @@ if __name__ == '__main__':
                     receiver_address = receiving_public_key.to_string()
 
                 amount = int(input("Enter amount to send:"))
-                memo = "send to self"
+                memo = ""
 
                 transaction = create_transaction(sender_address, receiver_address, amount, memo, private_key)
                 print("Created Transaction:", transaction)
@@ -111,7 +111,8 @@ if __name__ == '__main__':
 
 
                 amount = int(input("Enter amount to send:"))
-                memo = "send to custom"
+                #memo = "send to custom"
+                memo = "stake"
 
                 transaction = create_transaction(sender_address, custom_address, amount, memo, private_key)
                 print("Created Transaction:", transaction)

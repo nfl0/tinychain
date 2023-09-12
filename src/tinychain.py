@@ -145,12 +145,16 @@ class Forger:
 class TinyVMEngine:
     def __init__(self, storage_engine):
         self.storage_engine = storage_engine
-        self.accounts_contract_address = "6163636f756e7473"  # Hexadecimal representation of "accounts"
-        self.staking_contract_address = "7374616b696e67"  # Hexadecimal representation of "staking"
+        ### System Contracts ###
+        self.accounts_contract_address = "6163636f756e7473"
+        self.staking_contract_address = "7374616b696e67"
+        ### End of System SCs ###
+
+        self.accounts_contract_state = self.get_contract_state(self.accounts_contract_address) # Loads the accounts contract state into memory
 
     def execute_block(self, block):
         # Update validator account balance with block reward
-        self.update_balance(block.validator, BLOCK_REWARD)
+        self.execute_accounts_contract(self.accounts_contract_address, self.accounts_contract_state, block.validator, None, BLOCK_REWARD, "credit")
 
         for transaction in block.transactions:
             sender, receiver, amount, memo = (
@@ -159,59 +163,62 @@ class TinyVMEngine:
                 transaction.amount,
                 transaction.memo,
             )
-            self.update_balance(sender, -amount)
-            self.update_balance(receiver, amount)
 
-            if memo is not None:
-                if receiver == self.staking_contract_address:
-                    if memo in ("stake", "unstake"):
-                        self.execute_staking_contract(
-                            self.staking_contract_address, sender, amount, memo
-                        )
-                    else:
-                        logging.info("Invalid memo. Try 'stake' or 'unstake'")
+            self.execute_accounts_contract(self.accounts_contract_address, self.accounts_contract_state, sender, receiver, amount, "transfer")
+
+            if receiver == self.staking_contract_address:
+                if memo in ("stake", "unstake"):
+                    staking_contract_state = self.get_contract_state(self.staking_contract_address)
+                    is_stake = memo == "stake"
+                    self.execute_staking_contract(self.staking_contract_address, staking_contract_state, sender, amount, is_stake)
                 else:
-                    logging.info(f"Memo content: {memo}")
+                    logging.info("Invalid memo. Try 'stake' or 'unstake'")
 
-    def execute_staking_contract(self, contract_address, account_address, amount, operation):
-        staking_state = self.get_contract_state(contract_address)
-        if staking_state is None:
-            staking_state = {}
-        staked_balance = staking_state.get(account_address, 0)
-        if operation == "stake":
+
+    def execute_accounts_contract(self, contract_address, contract_state, sender, receiver, amount, operation):
+        if contract_state is None:
+            contract_state = {}
+        if operation == "credit":
+            current_balance = contract_state.get(sender, 0)
+            new_balance = current_balance + amount
+            contract_state[sender] = new_balance
+        elif operation == "transfer":
+            sender_balance = contract_state.get(sender, 0)
+            receiver_balance = contract_state.get(receiver, 0)
+            if sender_balance >= amount:
+                contract_state[sender] = sender_balance - amount
+                contract_state[receiver] = receiver_balance + amount
+            else:
+                logging.info(f"Insufficient balance for sender: {sender}")
+
+        self.store_contract_state(contract_address, contract_state)
+
+
+    def execute_staking_contract(self, contract_address, contract_state, sender, amount, operation):
+        if contract_state is None:
+            contract_state = {}
+        staked_balance = contract_state.get(sender, 0)
+        if operation:
             new_staked_balance = staked_balance + amount
-            staking_state[account_address] = new_staked_balance
-            self.store_contract_state(contract_address, staking_state)
+            contract_state[sender] = new_staked_balance
             logging.info(
-                f"{account_address} staked {amount} tinycoins for contract {contract_address}. New staked balance: {new_staked_balance}"
+                f"{sender} staked {amount} tinycoins for contract {contract_address}. New staked balance: {new_staked_balance}"
             )
-        elif operation == "unstake":
+        else:
             if staked_balance > 0:
                 released_balance = staked_balance
-                staking_state[account_address] = 0  # Reset staked balance to zero
-                self.store_contract_state(contract_address, staking_state)
-                # Update the account's balance by adding the released tinycoins
-                self.update_balance(account_address, released_balance)
+                contract_state[sender] = 0
+                self.execute_accounts_contract(self.accounts_contract_address, self.accounts_contract_state, sender, None, released_balance, "credit")
                 logging.info(
-                    f"{account_address} unstaked {released_balance} tinycoins for contract {contract_address}. Staked balance reset to zero."
+                    f"{sender} unstaked {released_balance} tinycoins for contract {contract_address}. Staked balance reset to zero."
                 )
             else:
-                # No staked tinycoins to unstake
                 logging.info(
-                    f"{account_address} has no staked tinycoins for contract {contract_address} to unstake."
+                    f"{sender} has no staked tinycoins for contract {contract_address} to unstake."
                 )
-        else:
-            logging.info("Invalid operation. Try 'stake' or 'unstake'")
+                
+        self.store_contract_state(contract_address, contract_state)
 
-    def update_balance(self, account_address, amount):
-        # Update the account balance by storing it in the accounts contract
-        accounts_state = self.get_contract_state(self.accounts_contract_address)
-        if accounts_state is None:
-            accounts_state = {}
-        current_balance = accounts_state.get(account_address, 0)
-        new_balance = current_balance + amount
-        accounts_state[account_address] = new_balance
-        self.store_contract_state(self.accounts_contract_address, accounts_state)
 
     def get_contract_state(self, contract_address):
         return self.storage_engine.fetch_contract_state(contract_address)
