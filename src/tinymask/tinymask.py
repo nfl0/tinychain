@@ -143,13 +143,13 @@ if __name__ == '__main__':
                 transactions = [
                     {
                         'sender': sender_address.hex(),
-                        'receiver': "1111",
+                        'receiver': "7374616b696e67",
                         'amount': 3,
                         'memo': 'stake'
                     },
                     {
                         'sender': sender_address.hex(),
-                        'receiver': "1111",
+                        'receiver': "7374616b696e67",
                         'amount': 1,
                         'memo': 'stake'
                     }

@@ -146,7 +146,7 @@ class TinyVMEngine:
     def __init__(self, storage_engine):
         self.storage_engine = storage_engine
         self.accounts_contract_address = "6163636f756e7473"  # Hexadecimal representation of "accounts"
-        self.staking_contract_address = "1111"
+        self.staking_contract_address = "7374616b696e67"  # Hexadecimal representation of "staking"
 
     def execute_block(self, block):
         # Update validator account balance with block reward
@@ -183,22 +183,22 @@ class TinyVMEngine:
             staking_state[account_address] = new_staked_balance
             self.store_contract_state(contract_address, staking_state)
             logging.info(
-                f"{account_address} staked {amount} tokens for contract {contract_address}. New staked balance: {new_staked_balance}"
+                f"{account_address} staked {amount} tinycoins for contract {contract_address}. New staked balance: {new_staked_balance}"
             )
         elif operation == "unstake":
             if staked_balance > 0:
                 released_balance = staked_balance
                 staking_state[account_address] = 0  # Reset staked balance to zero
                 self.store_contract_state(contract_address, staking_state)
-                # Update the account's balance by adding the released tokens
+                # Update the account's balance by adding the released tinycoins
                 self.update_balance(account_address, released_balance)
                 logging.info(
-                    f"{account_address} unstaked {released_balance} tokens for contract {contract_address}. Staked balance reset to zero."
+                    f"{account_address} unstaked {released_balance} tinycoins for contract {contract_address}. Staked balance reset to zero."
                 )
             else:
-                # No staked tokens to unstake
+                # No staked tinycoins to unstake
                 logging.info(
-                    f"{account_address} has no staked tokens for contract {contract_address} to unstake."
+                    f"{account_address} has no staked tinycoins for contract {contract_address} to unstake."
                 )
         else:
             logging.info("Invalid operation. Try 'stake' or 'unstake'")
