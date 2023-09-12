@@ -108,12 +108,20 @@ class Forger:
         self.validation_engine = validation_engine
         self.validator_address = validator_address
         self.running = True
+        self.production_enabled = False
         self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
         self.block_height = (last_block_data['height'] + 1) if last_block_data else 0
         self.block_timer = None
 
+    def toggle_production(self):
+        self.production_enabled = not self.production_enabled
+
     async def forge_new_block(self):
         while self.running:
+            if not self.production_enabled:
+                await asyncio.sleep(BLOCK_TIME)
+                continue
+
             transactions_to_forge = self.transactionpool.get_transactions()
             valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
 
@@ -343,6 +351,12 @@ async def get_balance(request):
         return web.json_response({'balance': balance})
     return web.json_response({'error': 'Account not found'}, status=404)
 
+async def toggle_production(request):
+    validator.toggle_production()
+    production_status = "enabled" if validator.production_enabled else "disabled"
+    return web.json_response({'message': f'Block production {production_status}'})
+
+app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
