@@ -16,3 +16,12 @@ class Block:
         if self.previous_block_hash:
             values.append(str(self.previous_block_hash))
         return blake3.blake3(''.join(values).encode()).hexdigest()
+    
+    @classmethod
+    def from_dict(cls, block_data):
+        height = block_data['height']
+        transactions = block_data['transactions']
+        timestamp = block_data['timestamp']
+        validator_address = block_data['validator']
+        previous_block_hash = block_data['previous_block_hash']
+        return cls(height, transactions, validator_address, previous_block_hash, timestamp)

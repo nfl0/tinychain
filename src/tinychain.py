@@ -8,12 +8,14 @@ import json
 from jsonschema import validate
 import jsonschema
 import blake3
+import time
 import websockets
 
+from validation_engine import ValidationEngine
 from block import Block
-from parameters import PORT, BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
+from parameters import HTTP_PORT, RPC_PORT, BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
-PEER_ADDR = 'ws://127.0.0.1:5001'
+connectedPeers = ['192.168.0.111', '192.168.0.112'] # store the blockchain and relays transactions
 
 app = web.Application()
 
@@ -32,9 +34,9 @@ transaction_schema = {
 class Transaction:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+        self.memo = kwargs.get('memo', '')
         self.message = f"{self.sender}-{self.receiver}-{self.amount}-{self.memo}"
         self.transaction_hash = self.generate_transaction_hash()
-        self.memo = kwargs.get('memo', '')
         self.confirmed = None
 
     def generate_transaction_hash(self):
@@ -43,6 +45,7 @@ class Transaction:
 
     def to_dict(self):
         return {
+            'transaction_hash': self.transaction_hash,
             'sender': self.sender,
             'receiver': self.receiver,
             'amount': self.amount,
@@ -56,36 +59,6 @@ class TransactionEncoder(json.JSONEncoder):
         if isinstance(obj, Transaction):
             return obj.to_dict()
         return super().default(obj)
-
-class ValidationEngine:
-    def __init__(self, storage_engine):
-        self.storage_engine = storage_engine
-
-    def validate_transaction(self, transaction):
-        sender_balance = self.storage_engine.fetch_balance(transaction.sender)
-        if sender_balance is not None and sender_balance >= transaction.amount and self.verify_transaction_signature(transaction):
-            return True
-        return False
-
-    def verify_transaction_signature(self, transaction):
-        public_key = transaction.sender
-        signature = transaction.signature
-        vk = VerifyingKey.from_string(bytes.fromhex(public_key), curve=ecdsa.SECP256k1)
-        try:
-            vk.verify(bytes.fromhex(signature), transaction.message.encode())
-            return True
-        except ecdsa.BadSignatureError:
-            return False
-
-    def validate_block(self, block):
-        # Check the block's structure and fields
-        if not isinstance(block, Block):
-            return False
-        # Check the block's transactions
-        for transaction in block.transactions:
-            if not self.validate_transaction(transaction):
-                return False
-        return True
 
 class TransactionPool:
     def __init__(self, max_size):
@@ -108,7 +81,7 @@ class Forger:
         self.validation_engine = validation_engine
         self.validator_address = validator_address
         self.running = True
-        self.production_enabled = False
+        self.production_enabled = True
         self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
         self.block_height = (last_block_data['height'] + 1) if last_block_data else 0
         self.block_timer = None
@@ -123,14 +96,20 @@ class Forger:
                 continue
 
             transactions_to_forge = self.transactionpool.get_transactions()
+
             valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
 
             # Filter out already confirmed transactions
             transactions_to_include = [t for t in valid_transactions_to_forge if t.confirmed is None][:MAX_TX_BLOCK]
 
+            # Get the previous block for validation
+            previous_block_data = storage_engine.fetch_last_block()
+            previous_block = Block.from_dict(previous_block_data) if previous_block_data else None
+
+            # Create a new block
             block = Block(self.block_height, transactions_to_include, self.validator_address, self.previous_block_hash)
 
-            if self.validation_engine.validate_block(block):
+            if self.validation_engine.validate_block(block, previous_block):
                 for transaction in transactions_to_include:
                     transaction.confirmed = self.block_height
 
@@ -158,11 +137,12 @@ class TinyVMEngine:
         self.staking_contract_address = "7374616b696e67"
         ### End of System SCs ###
 
-        self.accounts_contract_state = self.get_contract_state(self.accounts_contract_address) # Loads the accounts contract state into memory
-
     def execute_block(self, block):
+        # Fetch the accounts contract state from storage
+        accounts_contract_state = self.storage_engine.fetch_contract_state(self.accounts_contract_address)
+        
         # Update validator account balance with block reward
-        self.execute_accounts_contract(self.accounts_contract_address, self.accounts_contract_state, block.validator, None, BLOCK_REWARD, "credit")
+        self.execute_accounts_contract(accounts_contract_state, block.validator, None, BLOCK_REWARD, "credit")
 
         for transaction in block.transactions:
             sender, receiver, amount, memo = (
@@ -172,18 +152,17 @@ class TinyVMEngine:
                 transaction.memo,
             )
 
-            self.execute_accounts_contract(self.accounts_contract_address, self.accounts_contract_state, sender, receiver, amount, "transfer")
+            self.execute_accounts_contract(accounts_contract_state, sender, receiver, amount, "transfer")
 
             if receiver == self.staking_contract_address:
                 if memo in ("stake", "unstake"):
-                    staking_contract_state = self.get_contract_state(self.staking_contract_address)
+                    staking_contract_state = self.storage_engine.fetch_contract_state(self.staking_contract_address)
                     is_stake = memo == "stake"
-                    self.execute_staking_contract(self.staking_contract_address, staking_contract_state, sender, amount, is_stake)
+                    self.execute_staking_contract(staking_contract_state, sender, amount, is_stake)
                 else:
                     logging.info("Invalid memo. Try 'stake' or 'unstake'")
 
-
-    def execute_accounts_contract(self, contract_address, contract_state, sender, receiver, amount, operation):
+    def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
             contract_state = {}
         if operation == "credit":
@@ -199,10 +178,9 @@ class TinyVMEngine:
             else:
                 logging.info(f"Insufficient balance for sender: {sender}")
 
-        self.store_contract_state(contract_address, contract_state)
+        self.store_contract_state(self.accounts_contract_address, contract_state)
 
-
-    def execute_staking_contract(self, contract_address, contract_state, sender, amount, operation):
+    def execute_staking_contract(self, contract_state, sender, amount, operation):
         if contract_state is None:
             contract_state = {}
         staked_balance = contract_state.get(sender, 0)
@@ -210,30 +188,28 @@ class TinyVMEngine:
             new_staked_balance = staked_balance + amount
             contract_state[sender] = new_staked_balance
             logging.info(
-                f"{sender} staked {amount} tinycoins for contract {contract_address}. New staked balance: {new_staked_balance}"
+                f"{sender} staked {amount} tinycoins for contract {self.staking_contract_address}. New staked balance: {new_staked_balance}"
             )
         else:
             if staked_balance > 0:
                 released_balance = staked_balance
                 contract_state[sender] = 0
-                self.execute_accounts_contract(self.accounts_contract_address, self.accounts_contract_state, sender, None, released_balance, "credit")
+                self.execute_accounts_contract(contract_state, sender, None, released_balance, "credit")
                 logging.info(
-                    f"{sender} unstaked {released_balance} tinycoins for contract {contract_address}. Staked balance reset to zero."
+                    f"{sender} unstaked {released_balance} tinycoins for contract {self.staking_contract_address}. Staked balance reset to zero."
                 )
             else:
                 logging.info(
-                    f"{sender} has no staked tinycoins for contract {contract_address} to unstake."
+                    f"{sender} has no staked tinycoins for contract {self.staking_contract_address} to unstake."
                 )
                 
-        self.store_contract_state(contract_address, contract_state)
-
+        self.store_contract_state(self.staking_contract_address, contract_state)
 
     def get_contract_state(self, contract_address):
         return self.storage_engine.fetch_contract_state(contract_address)
 
     def store_contract_state(self, contract_address, state_data):
         self.storage_engine.store_contract_state(contract_address, state_data)
-
 
 class StorageEngine:
     def __init__(self):
@@ -374,7 +350,7 @@ if __name__ == '__main__':
     app_runner = web.AppRunner(app)
     loop.run_until_complete(app_runner.setup())
     
-    site = web.TCPSite(app_runner, host='0.0.0.0', port=PORT)
+    site = web.TCPSite(app_runner, host='0.0.0.0', port=HTTP_PORT)
     loop.run_until_complete(site.start())
 
     loop.create_task(validator.forge_new_block()) 
