@@ -11,13 +11,83 @@ import blake3
 import time
 import websockets
 
-from validation_engine import ValidationEngine
-from block import Block
 from parameters import HTTP_PORT, RPC_PORT, BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
 connectedPeers = ['192.168.0.111', '192.168.0.112'] # store the blockchain and relays transactions
 
 app = web.Application()
+
+
+class ValidationEngine:
+    def __init__(self, storage_engine):
+        self.storage_engine = storage_engine
+
+    def validate_transaction(self, transaction):
+        sender_balance = self.storage_engine.fetch_balance(transaction.sender)
+        if sender_balance is not None and sender_balance >= transaction.amount and self.verify_transaction_signature(transaction):
+            return True
+        return False
+
+    def verify_transaction_signature(self, transaction):
+        public_key = transaction.sender
+        signature = transaction.signature
+        vk = VerifyingKey.from_string(bytes.fromhex(public_key), curve=ecdsa.SECP256k1)
+        try:
+            vk.verify(bytes.fromhex(signature), transaction.message.encode())
+            return True
+        except ecdsa.BadSignatureError:
+            return False
+
+    def validate_block(self, block, previous_block=None):
+        if not isinstance(block, Block):
+            return False
+
+        # If there is no previous block, allow the first block to pass validation
+        if previous_block is None:
+            return True
+
+        if block.height != previous_block.height + 1:
+            return False
+
+        time_tolerance = 2
+        current_time = int(time.time())
+        if not (previous_block.timestamp < block.timestamp < current_time + time_tolerance):
+            return False
+
+        computed_hash = block.generate_block_hash()
+        if block.block_hash != computed_hash:
+            return False
+
+        for transaction in block.transactions:
+            if not self.validate_transaction(transaction):
+                return False
+
+        return True
+
+class Block:
+    def __init__(self, height, transactions, validator_address, previous_block_hash=None, timestamp=None):
+        self.height = height
+        self.transactions = transactions
+        self.timestamp = timestamp or int(time.time())
+        self.validator = validator_address
+        self.previous_block_hash = previous_block_hash
+        self.block_hash = self.generate_block_hash()
+
+    def generate_block_hash(self):
+        sorted_transaction_hashes = sorted([t.to_dict()['transaction_hash'] for t in self.transactions])
+        values = sorted_transaction_hashes + [str(self.timestamp)]
+        if self.previous_block_hash:
+            values.append(str(self.previous_block_hash))
+        return blake3.blake3(''.join(values).encode()).hexdigest()
+    
+    @classmethod
+    def from_dict(cls, block_data):
+        height = block_data['height']
+        transactions = [Transaction(**t) for t in block_data['transactions']]
+        timestamp = block_data['timestamp']
+        validator_address = block_data['validator']
+        previous_block_hash = block_data['previous_block_hash']
+        return cls(height, transactions, validator_address, previous_block_hash, timestamp)
 
 transaction_schema = {
     "type": "object",
