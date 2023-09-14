@@ -12,10 +12,9 @@ import time
 import re
 import websockets
 
-from vm import TinyVMEngine
-from parameters import HTTP_PORT, WSS_PORT, BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
+from parameters import HTTP_PORT, RPC_PORT, BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
-#peer = ['192.168.0.111'] # production_enabled set to false. this node receives blocks and transactions
+#peers = ['192.168.0.111', '192.168.0.112'] # store the blockchain and relays transactions
 
 app = web.Application()
 
@@ -92,16 +91,6 @@ class Block:
             values.append(str(self.previous_block_hash))
         return blake3.blake3(''.join(values).encode()).hexdigest()
     
-    def to_dict(self):
-        return {
-            'height': self.height,
-            'transactions': [transaction.to_dict() for transaction in self.transactions],
-            'timestamp': self.timestamp,
-            'validator': self.validator,
-            'block_hash': self.block_hash,
-            'previous_block_hash': self.previous_block_hash
-        }
-    
     @classmethod
     def from_dict(cls, block_data):
         height = block_data['height']
@@ -156,18 +145,12 @@ class TransactionPool:
     def __init__(self, max_size):
         self.transactions = {}
         self.max_size = max_size
-
-    async def broadcast_transaction(self, transaction):
-        transaction_json = json.dumps(transaction.to_dict())
-        for client in connected_clients:
-            await client.send_json({'type': 'transaction', 'data': transaction_json})
-
     def add_transaction(self, transaction):
         if len(self.transactions) < self.max_size:
             self.transactions[transaction.sender] = transaction
             # Broadcast the new transaction to all connected clients
-            asyncio.create_task(self.broadcast_transaction(transaction))
-
+            for client in connected_clients:
+                asyncio.create_task(client.send(json.dumps(transaction.to_dict())))
     def remove_transaction(self, transaction):
         self.transactions.pop(transaction.sender, None)
     def get_transactions(self):
@@ -182,18 +165,13 @@ class Forger:
         self.validation_engine = validation_engine
         self.validator_address = validator_address
         self.running = True
-        self.production_enabled = True
+        self.production_enabled = False
         self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
         self.block_height = (last_block_data['height'] + 1) if last_block_data else 0
         self.block_timer = None
 
     def toggle_production(self):
         self.production_enabled = not self.production_enabled
-
-    async def broadcast_block(self, block):
-        block_data = json.dumps(block.to_dict())
-        for client in connected_clients:
-            await client.send_json({'type': 'block', 'data': block_data})
 
     async def forge_new_block(self):
         while self.running:
@@ -227,15 +205,115 @@ class Forger:
                 self.previous_block_hash = block.block_hash
                 self.block_height += 1
 
-                # Broadcast the newly created block
-                await self.broadcast_block(block)
+            await asyncio.sleep(BLOCK_TIME)
+    
+    async def broadcast_blocks(self):
+        while self.running:
+            if not self.production_enabled:
+                await asyncio.sleep(BLOCK_TIME)
+                continue
+
+            # Get the latest block
+            latest_block_data = storage_engine.fetch_last_block()
+
+            # If a new block is forged, broadcast it to all connected clients
+            if latest_block_data and latest_block_data['block_hash'] != self.last_broadcasted_block_hash:
+                for client in connected_clients:
+                    await client.send(json.dumps(latest_block_data))
+
+                self.last_broadcasted_block_hash = latest_block_data['block_hash']
 
             await asyncio.sleep(BLOCK_TIME)
+
     def start(self):
         asyncio.create_task(self.forge_new_block())
+        asyncio.create_task(self.broadcast_blocks())
+
 
     def stop(self):
         self.running = False
+
+class TinyVMEngine:
+    def __init__(self, storage_engine):
+        self.storage_engine = storage_engine
+        ### System Contracts ###
+        self.accounts_contract_address = "6163636f756e7473"
+        self.staking_contract_address = "7374616b696e67"
+        ### End of System SCs ###
+
+    def execute_block(self, block):
+        # Fetch the accounts contract state from storage
+        accounts_contract_state = self.storage_engine.fetch_contract_state(self.accounts_contract_address)
+        
+        # Update validator account balance with block reward
+        self.execute_accounts_contract(accounts_contract_state, block.validator, None, BLOCK_REWARD, "credit")
+
+        for transaction in block.transactions:
+            sender, receiver, amount, memo = (
+                transaction.sender,
+                transaction.receiver,
+                transaction.amount,
+                transaction.memo,
+            )
+
+            self.execute_accounts_contract(accounts_contract_state, sender, receiver, amount, "transfer")
+
+            if receiver == self.staking_contract_address:
+                if memo in ("stake", "unstake"):
+                    staking_contract_state = self.storage_engine.fetch_contract_state(self.staking_contract_address)
+                    is_stake = memo == "stake"
+                    self.execute_staking_contract(staking_contract_state, sender, amount, is_stake)
+                else:
+                    logging.info("Invalid memo. Try 'stake' or 'unstake'")
+
+    def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
+        if contract_state is None:
+            contract_state = {}
+        if operation == "credit":
+            current_balance = contract_state.get(sender, 0)
+            new_balance = current_balance + amount
+            contract_state[sender] = new_balance
+        elif operation == "transfer":
+            sender_balance = contract_state.get(sender, 0)
+            receiver_balance = contract_state.get(receiver, 0)
+            if sender_balance >= amount:
+                contract_state[sender] = sender_balance - amount
+                contract_state[receiver] = receiver_balance + amount
+            else:
+                logging.info(f"Insufficient balance for sender: {sender}")
+
+        self.store_contract_state(self.accounts_contract_address, contract_state)
+
+    def execute_staking_contract(self, contract_state, sender, amount, operation):
+        if contract_state is None:
+            contract_state = {}
+        staked_balance = contract_state.get(sender, 0)
+        if operation:
+            new_staked_balance = staked_balance + amount
+            contract_state[sender] = new_staked_balance
+            logging.info(
+                f"{sender} staked {amount} tinycoins for contract {self.staking_contract_address}. New staked balance: {new_staked_balance}"
+            )
+        else:
+            if staked_balance > 0:
+                released_balance = staked_balance
+                contract_state[sender] = 0
+                self.execute_accounts_contract(contract_state, sender, None, released_balance, "credit")
+                logging.info(
+                    f"{sender} unstaked {released_balance} tinycoins for contract {self.staking_contract_address}. Staked balance reset to zero."
+                )
+            else:
+                logging.info(
+                    f"{sender} has no staked tinycoins for contract {self.staking_contract_address} to unstake."
+                )
+                
+        self.store_contract_state(self.staking_contract_address, contract_state)
+
+    def get_contract_state(self, contract_address):
+        return self.storage_engine.fetch_contract_state(contract_address)
+
+    def store_contract_state(self, contract_address, state_data):
+        self.storage_engine.store_contract_state(contract_address, state_data)
 
 class StorageEngine:
     def __init__(self):
@@ -311,24 +389,6 @@ class StorageEngine:
     def close(self):
         self.close_databases()
 
-connected_clients = set()
-
-async def wss_handler(request):
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-
-    connected_clients.add(ws)
-
-    try:
-        async for msg in ws:
-            logging.info(msg)
-            pass
-    except websockets.exceptions.ConnectionClosed:
-        pass
-    finally:
-        connected_clients.remove(ws)
-
-    return ws
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -380,7 +440,32 @@ app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
-app.router.add_get('/wss', wss_handler)
+
+
+connected_clients = set()
+
+async def ws_handler(request):
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    # Add the connected WebSocket client to a list
+    connected_clients.add(ws)
+
+    try:
+        async for msg in ws:
+            # Process incoming WebSocket messages here, if needed
+            pass
+    except websockets.exceptions.ConnectionClosed:
+        pass
+    finally:
+        # Remove the WebSocket client from the list when the connection is closed
+        connected_clients.remove(ws)
+
+    return ws
+
+app.router.add_get('/ws', ws_handler)
+
+
 
 
 async def cleanup(app):
@@ -399,14 +484,6 @@ if __name__ == '__main__':
     site = web.TCPSite(app_runner, host='0.0.0.0', port=HTTP_PORT)
     loop.run_until_complete(site.start())
 
-    # Create a separate WebSocket server on a different port (WSS_PORT)
-    wss_app = web.Application()
-    wss_app.router.add_get('/wss', wss_handler)
-    wss_runner = web.AppRunner(wss_app)
-    loop.run_until_complete(wss_runner.setup())
-    wss_site = web.TCPSite(wss_runner, host='0.0.0.0', port=WSS_PORT)
-    loop.run_until_complete(wss_site.start())
-
     loop.create_task(validator.forge_new_block()) 
     
     try:
@@ -415,6 +492,4 @@ if __name__ == '__main__':
         pass
     finally:
         loop.run_until_complete(site.stop())
-        loop.run_until_complete(wss_site.stop())  # Stop the WebSocket server
         loop.run_until_complete(app_runner.cleanup())
-        loop.run_until_complete(wss_runner.cleanup())  # Cleanup WebSocket server resources
