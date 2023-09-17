@@ -1,7 +1,7 @@
 import ecdsa
 from ecdsa import VerifyingKey
 import time
-#from block import Block
+from block import Block
 import re # todos: validate previous_bock_hash against regex. also, check transaction.amount > 0 
 
 class ValidationEngine:
@@ -35,8 +35,8 @@ class ValidationEngine:
             return False
 
     def validate_block(self, block, previous_block=None):
-        #if not isinstance(block, Block):
-        #    return False
+        if not isinstance(block, Block):
+            return False
 
         # If there is no previous block, allow the first block to pass validation
         if previous_block is None:
@@ -52,6 +52,12 @@ class ValidationEngine:
 
         computed_hash = block.generate_block_hash()
         if block.block_hash != computed_hash:
+            return False
+
+        # Calculate the Merkle root of the block's transactions
+        computed_merkle_root = block.calculate_merkle_root()
+
+        if block.merkle_root != computed_merkle_root:
             return False
 
         for transaction in block.transactions:
