@@ -1,127 +1,22 @@
 from aiohttp import web
+import aiohttp
 import asyncio
 import logging
-import ecdsa
-from ecdsa import VerifyingKey
 import plyvel
 import json
 from jsonschema import validate
 import jsonschema
 import blake3
-import time
-import re
-import websockets
 
+from block import Block
+from transaction import transaction_schema
+from validation_engine import ValidationEngine
 from vm import TinyVMEngine
-from parameters import HTTP_PORT, WSS_PORT, BLOCK_REWARD, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
+from parameters import HTTP_PORT, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
-#peer = ['192.168.0.111'] # production_enabled set to false. this node receives blocks and transactions
+PEER_URIS = ['localhost:5010', 'localhost:5020']
 
 app = web.Application()
-
-
-class ValidationEngine:
-    def __init__(self, storage_engine):
-        self.storage_engine = storage_engine
-
-    def is_valid_address(self, address):
-        return bool(re.match(r'^[0-9a-fA-F]+$', address))
-
-    def validate_transaction(self, transaction):
-        sender_balance = self.storage_engine.fetch_balance(transaction.sender)
-        if (
-            sender_balance is not None
-            and sender_balance >= transaction.amount
-            and self.verify_transaction_signature(transaction)
-            and self.is_valid_address(transaction.sender)
-            and self.is_valid_address(transaction.receiver)
-            and transaction.amount > 0
-        ):
-            return True
-        return False
-
-    def verify_transaction_signature(self, transaction):
-        public_key = transaction.sender
-        signature = transaction.signature
-        vk = VerifyingKey.from_string(bytes.fromhex(public_key), curve=ecdsa.SECP256k1)
-        try:
-            vk.verify(bytes.fromhex(signature), transaction.message.encode())
-            return True
-        except ecdsa.BadSignatureError:
-            return False
-
-    def validate_block(self, block, previous_block=None):
-        if not isinstance(block, Block):
-            return False
-
-        # If there is no previous block, allow the first block to pass validation
-        if previous_block is None:
-            return True
-
-        if block.height != previous_block.height + 1:
-            return False
-
-        time_tolerance = 2
-        current_time = int(time.time())
-        if not (previous_block.timestamp < block.timestamp < current_time + time_tolerance):
-            return False
-
-        computed_hash = block.generate_block_hash()
-        if block.block_hash != computed_hash:
-            return False
-
-        for transaction in block.transactions:
-            if not self.validate_transaction(transaction):
-                return False
-
-        return True
-
-class Block:
-    def __init__(self, height, transactions, validator_address, previous_block_hash=None, timestamp=None):
-        self.height = height
-        self.transactions = transactions
-        self.timestamp = timestamp or int(time.time())
-        self.validator = validator_address
-        self.previous_block_hash = previous_block_hash
-        self.block_hash = self.generate_block_hash()
-
-    def generate_block_hash(self):
-        sorted_transaction_hashes = sorted([t.to_dict()['transaction_hash'] for t in self.transactions])
-        values = sorted_transaction_hashes + [str(self.timestamp)]
-        if self.previous_block_hash:
-            values.append(str(self.previous_block_hash))
-        return blake3.blake3(''.join(values).encode()).hexdigest()
-    
-    def to_dict(self):
-        return {
-            'height': self.height,
-            'transactions': [transaction.to_dict() for transaction in self.transactions],
-            'timestamp': self.timestamp,
-            'validator': self.validator,
-            'block_hash': self.block_hash,
-            'previous_block_hash': self.previous_block_hash
-        }
-    
-    @classmethod
-    def from_dict(cls, block_data):
-        height = block_data['height']
-        transactions = [Transaction(**t) for t in block_data['transactions']]
-        timestamp = block_data['timestamp']
-        validator_address = block_data['validator']
-        previous_block_hash = block_data['previous_block_hash']
-        return cls(height, transactions, validator_address, previous_block_hash, timestamp)
-
-transaction_schema = {
-    "type": "object",
-    "properties": {
-        "sender": {"type": "string"},
-        "receiver": {"type": "string"},
-        "amount": {"type": "number"},
-        "signature": {"type": "string"},
-        "memo": {"type": "string"}
-    },
-    "required": ["sender", "receiver", "amount", "signature"]
-}
 
 class Transaction:
     def __init__(self, **kwargs):
@@ -151,23 +46,14 @@ class TransactionEncoder(json.JSONEncoder):
         if isinstance(obj, Transaction):
             return obj.to_dict()
         return super().default(obj)
-
+    
 class TransactionPool:
     def __init__(self, max_size):
         self.transactions = {}
         self.max_size = max_size
-
-    async def broadcast_transaction(self, transaction):
-        transaction_json = json.dumps(transaction.to_dict())
-        for client in connected_clients:
-            await client.send_json({'type': 'transaction', 'data': transaction_json})
-
     def add_transaction(self, transaction):
         if len(self.transactions) < self.max_size:
             self.transactions[transaction.sender] = transaction
-            # Broadcast the new transaction to all connected clients
-            asyncio.create_task(self.broadcast_transaction(transaction))
-
     def remove_transaction(self, transaction):
         self.transactions.pop(transaction.sender, None)
     def get_transactions(self):
@@ -189,11 +75,6 @@ class Forger:
 
     def toggle_production(self):
         self.production_enabled = not self.production_enabled
-
-    async def broadcast_block(self, block):
-        block_data = json.dumps(block.to_dict())
-        for client in connected_clients:
-            await client.send_json({'type': 'block', 'data': block_data})
 
     async def forge_new_block(self):
         while self.running:
@@ -227,10 +108,8 @@ class Forger:
                 self.previous_block_hash = block.block_hash
                 self.block_height += 1
 
-                # Broadcast the newly created block
-                await self.broadcast_block(block)
-
             await asyncio.sleep(BLOCK_TIME)
+
     def start(self):
         asyncio.create_task(self.forge_new_block())
 
@@ -279,7 +158,6 @@ class StorageEngine:
             logging.error(f"Failed to store block: {e}")
 
     def fetch_balance(self, account_address):
-        # Fetch the balance from the accounts contract state
         accounts_state = self.fetch_contract_state("6163636f756e7473")
         if accounts_state is not None:
             return accounts_state.get(account_address, None)
@@ -311,24 +189,6 @@ class StorageEngine:
     def close(self):
         self.close_databases()
 
-connected_clients = set()
-
-async def wss_handler(request):
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-
-    connected_clients.add(ws)
-
-    try:
-        async for msg in ws:
-            logging.info(msg)
-            pass
-    except websockets.exceptions.ConnectionClosed:
-        pass
-    finally:
-        connected_clients.remove(ws)
-
-    return ws
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -342,6 +202,18 @@ last_block_data = storage_engine.fetch_last_block()
 validator = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY, last_block_data)
 tvm_engine = TinyVMEngine(storage_engine)
 
+# Function to send transactions to all connected peers
+async def broadcast_transaction(transaction_data):
+    for peer_uri in PEER_URIS:
+        async with aiohttp.ClientSession() as session:
+            url = f"http://{peer_uri}/receive_transaction"
+            async with session.post(url, json={'transaction': transaction_data}) as response:
+                if response.status == 200:
+                    response_data = await response.json()
+                    print(f"Transaction sent to {peer_uri}: {response_data}")
+                else:
+                    print(f"Failed to send transaction to {peer_uri}")
+
 # API endpoints
 async def send_transaction(request):
     data = await request.json()
@@ -352,6 +224,23 @@ async def send_transaction(request):
             transaction = Transaction(**transaction_data)
             if validation_engine.validate_transaction(transaction):
                 transactionpool.add_transaction(transaction)
+                await broadcast_transaction(transaction_data)
+                return web.json_response({'message': 'Transaction added to the transaction pool', 'transaction_hash': transaction.transaction_hash})
+        except jsonschema.exceptions.ValidationError:
+            pass
+    return web.json_response({'error': 'Invalid transaction data'}, status=400)
+
+# Endpoint to receive transactions from other peers
+async def receive_transaction(request):
+    data = await request.json()
+    if 'transaction' in data:
+        transaction_data = data['transaction']
+        try:
+            validate(instance=transaction_data, schema=transaction_schema)
+            transaction = Transaction(**transaction_data)
+            if validation_engine.validate_transaction(transaction):
+                transactionpool.add_transaction(transaction)
+                logging.info("[Receiver API] transaction received")
                 return web.json_response({'message': 'Transaction added to the transaction pool', 'transaction_hash': transaction.transaction_hash})
         except jsonschema.exceptions.ValidationError:
             pass
@@ -378,10 +267,9 @@ async def toggle_production(request):
 
 app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
+app.router.add_post('/receive_transaction', receive_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
-app.router.add_get('/wss', wss_handler)
-
 
 async def cleanup(app):
     validator.stop()
@@ -399,14 +287,6 @@ if __name__ == '__main__':
     site = web.TCPSite(app_runner, host='0.0.0.0', port=HTTP_PORT)
     loop.run_until_complete(site.start())
 
-    # Create a separate WebSocket server on a different port (WSS_PORT)
-    wss_app = web.Application()
-    wss_app.router.add_get('/wss', wss_handler)
-    wss_runner = web.AppRunner(wss_app)
-    loop.run_until_complete(wss_runner.setup())
-    wss_site = web.TCPSite(wss_runner, host='0.0.0.0', port=WSS_PORT)
-    loop.run_until_complete(wss_site.start())
-
     loop.create_task(validator.forge_new_block()) 
     
     try:
@@ -415,6 +295,4 @@ if __name__ == '__main__':
         pass
     finally:
         loop.run_until_complete(site.stop())
-        loop.run_until_complete(wss_site.stop())  # Stop the WebSocket server
         loop.run_until_complete(app_runner.cleanup())
-        loop.run_until_complete(wss_runner.cleanup())  # Cleanup WebSocket server resources

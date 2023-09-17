@@ -1,5 +1,6 @@
 import blake3
 import time
+from transaction import Transaction
 
 class Block:
     def __init__(self, height, transactions, validator_address, previous_block_hash=None, timestamp=None):

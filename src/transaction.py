@@ -1,11 +1,23 @@
 import blake3
 
+transaction_schema = {
+    "type": "object",
+    "properties": {
+        "sender": {"type": "string"},
+        "receiver": {"type": "string"},
+        "amount": {"type": "number"},
+        "signature": {"type": "string"},
+        "memo": {"type": "string"}
+    },
+    "required": ["sender", "receiver", "amount", "signature"]
+}
+
 class Transaction:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
-        self.message = f"{self.sender}-{self.receiver}-{self.amount}"
-        self.transaction_hash = self.generate_transaction_hash()
         self.memo = kwargs.get('memo', '')
+        self.message = f"{self.sender}-{self.receiver}-{self.amount}-{self.memo}"
+        self.transaction_hash = self.generate_transaction_hash()
         self.confirmed = None
 
     def generate_transaction_hash(self):
@@ -14,6 +26,7 @@ class Transaction:
 
     def to_dict(self):
         return {
+            'transaction_hash': self.transaction_hash,
             'sender': self.sender,
             'receiver': self.receiver,
             'amount': self.amount,
