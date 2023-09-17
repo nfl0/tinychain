@@ -206,7 +206,7 @@ tvm_engine = TinyVMEngine(storage_engine)
 # Function to send transactions to all connected peers
 async def broadcast_transaction(transaction_data):
     for peer_uri in PEER_URIS:
-        if False:
+        try:
             async with aiohttp.ClientSession() as session:
                 url = f"http://{peer_uri}/receive_transaction"
                 async with session.post(url, json={'transaction': transaction_data}) as response:
@@ -215,6 +215,8 @@ async def broadcast_transaction(transaction_data):
                         print(f"Transaction sent to {peer_uri}: {response_data}")
                     else:
                         print(f"Failed to send transaction to {peer_uri}")
+        except aiohttp.ClientError as e:
+            print(f"Error sending transaction to {peer_uri}: {e}")
 
 # API endpoints
 async def send_transaction(request):
