@@ -148,9 +148,9 @@ class StorageEngine:
             'previous_block_hash': block.previous_block_hash
             }
 
-            self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
-            
             tvm_engine.execute_block(block)
+            
+            self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
 
             self.last_block_hash = block.block_hash
 
@@ -203,7 +203,8 @@ last_block_data = storage_engine.fetch_last_block()
 validator = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY, last_block_data)
 tvm_engine = TinyVMEngine(storage_engine)
 
-# Function to send transactions to all connected peers
+# Api Endpoints
+
 async def broadcast_transaction(transaction_data):
     for peer_uri in PEER_URIS:
         try:
@@ -218,7 +219,6 @@ async def broadcast_transaction(transaction_data):
         except aiohttp.ClientError as e:
             print(f"Error sending transaction to {peer_uri}: {e}")
 
-# API endpoints
 async def send_transaction(request):
     data = await request.json()
     if 'transaction' in data:
@@ -234,7 +234,6 @@ async def send_transaction(request):
             pass
     return web.json_response({'error': 'Invalid transaction data'}, status=400)
 
-# Endpoint to receive transactions from other peers
 async def receive_transaction(request):
     data = await request.json()
     if 'transaction' in data:

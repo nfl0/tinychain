@@ -31,9 +31,9 @@ class Block:
         while len(transaction_hashes) > 1:
             if len(transaction_hashes) % 2 != 0:
                 transaction_hashes.append(transaction_hashes[-1])
-            transaction_hashes = [blake3.blake3(transaction_hashes[i] + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
+            transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
 
-        return blake3.blake3(transaction_hashes[0].encode()).hexdigest()  # Use blake3() directly here
+        return blake3.blake3(transaction_hashes[0].encode()).hexdigest()
 
 
     @classmethod
