@@ -1,9 +1,16 @@
 import logging
+import blake3
 from parameters import BLOCK_REWARD
+from merkle_tree import MerkleTree
 
 class TinyVMEngine:
     def __init__(self, storage_engine):
         self.storage_engine = storage_engine
+        self.merkle_tree = MerkleTree()
+
+        # Initialize the contract state cache
+        self.contract_state_cache = {}
+
         ### System Contracts ###
         self.accounts_contract_address = "6163636f756e7473"
         self.staking_contract_address = "7374616b696e67"
@@ -34,6 +41,10 @@ class TinyVMEngine:
                 else:
                     logging.info("Invalid memo. Try 'stake' or 'unstake'")
 
+        # Calculate the Merkle root and store it
+        state_root = self.merkle_tree.root_hash()
+        print(f"State Root: {state_root}")
+
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
             contract_state = {}
@@ -51,6 +62,8 @@ class TinyVMEngine:
                 logging.info(f"Insufficient balance for sender: {sender}")
 
         self.store_contract_state(self.accounts_contract_address, contract_state)
+        print (contract_state)
+        self.merkle_tree.append(bytes(str(contract_state), "utf-8"))
 
     def execute_staking_contract(self, contract_state, sender, amount, operation):
         if contract_state is None:
@@ -76,9 +89,20 @@ class TinyVMEngine:
                 )
 
         self.store_contract_state(self.staking_contract_address, contract_state)
+        self.merkle_tree.append(bytes(str(contract_state), "utf-8"))
 
+        
     def get_contract_state(self, contract_address):
-        return self.storage_engine.fetch_contract_state(contract_address)
+        if contract_address in self.contract_state_cache:
+            return self.contract_state_cache[contract_address]
+        else:
+            # Fetch contract state from storage engine
+            contract_state = self.storage_engine.fetch_contract_state(contract_address)
+            
+            # Store it in the cache
+            self.contract_state_cache[contract_address] = contract_state
+            
+            return contract_state
 
     def store_contract_state(self, contract_address, state_data):
         self.storage_engine.store_contract_state(contract_address, state_data)

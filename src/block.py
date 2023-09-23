@@ -19,6 +19,7 @@ class Block:
         concatenated_string = ''.join(values).encode()  # Encode to bytes
         return blake3.blake3(concatenated_string).hexdigest()
 
+
     def calculate_merkle_root(self):
         transaction_hashes = [t.to_dict()['transaction_hash'] for t in self.transactions]
         return self.compute_merkle_root(transaction_hashes)
@@ -33,7 +34,16 @@ class Block:
                 transaction_hashes.append(transaction_hashes[-1])
             transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
 
-        return blake3.blake3(transaction_hashes[0].encode()).hexdigest()
+        if isinstance(transaction_hashes[0], str):
+            # If it's a string, encode it as bytes using UTF-8
+            transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
+
+        return blake3.blake3(transaction_hashes[0]).hexdigest()
+
+
+
+
+
 
 
     @classmethod
