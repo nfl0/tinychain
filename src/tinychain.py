@@ -125,7 +125,7 @@ class StorageEngine:
     def open_databases(self):
         try:
             self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
-            self.db_states = plyvel.DB('tvm_states.db', create_if_missing=True)
+            self.db_states = plyvel.DB('state.db', create_if_missing=True)
         except Exception as e:
             logging.error(f"Failed to open databases: {e}")
 
