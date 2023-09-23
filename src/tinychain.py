@@ -137,18 +137,19 @@ class StorageEngine:
             logging.error(f"Failed to close databases: {e}")
 
     def store_block(self, block):
+        if tvm_engine.execute_block(block) is False:
+            return
         try:
             block_data = {
-            'height': block.height,
-            'transactions': [transaction.to_dict() for transaction in block.transactions],
-            'timestamp': block.timestamp,
-            'validator': block.validator,
-            'merkle_root': block.merkle_root,
             'block_hash': block.block_hash,
-            'previous_block_hash': block.previous_block_hash
+            'height': block.height,
+            'timestamp': block.timestamp,
+            'merkle_root': block.merkle_root,
+            'state_root': block.state_root,
+            'previous_block_hash': block.previous_block_hash,
+            'validator': block.validator,
+            'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
-
-            tvm_engine.execute_block(block)
             
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
 

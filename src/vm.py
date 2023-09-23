@@ -43,13 +43,18 @@ class TinyVMEngine:
                     logging.info("Invalid memo. Try 'stake' or 'unstake'")
 
         # Calculate the Merkle root and store it
-        state_root = self.merkle_tree.root_hash()
-        print(f"State Root: {state_root}")
+        state_root = self.merkle_tree.root_hash().hex()
+        if block.state_root is None or state_root == block.state_root:
+            # Write contract states from cache to storage
+            block.state_root = state_root
+            self.store_contract_state(self.accounts_contract_address, accounts_contract_state)
+            if staking_contract_state is not None:
+                self.store_contract_state(self.staking_contract_address, staking_contract_state)
+            return True
+        else:
+            logging.info("Invalid state root")
+            return False
 
-        # Write contract states from cache to storage
-        self.store_contract_state(self.accounts_contract_address, accounts_contract_state)
-        if staking_contract_state is not None:
-            self.store_contract_state(self.staking_contract_address, staking_contract_state)
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
