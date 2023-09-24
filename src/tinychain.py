@@ -229,7 +229,7 @@ async def send_transaction(request):
             transaction = Transaction(**transaction_data)
             if validation_engine.validate_transaction(transaction):
                 transactionpool.add_transaction(transaction)
-                await broadcast_transaction(transaction_data)
+                #await broadcast_transaction(transaction_data)
                 return web.json_response({'message': 'Transaction added to the transaction pool', 'transaction_hash': transaction.transaction_hash})
         except jsonschema.exceptions.ValidationError:
             pass
