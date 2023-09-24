@@ -14,7 +14,7 @@ from validation_engine import ValidationEngine
 from vm import TinyVMEngine
 from parameters import HTTP_PORT, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
-PEER_URIS = ['localhost:5010', 'localhost:5020']
+PEER_URIS = 'localhost:5010'
 
 app = web.Application()
 
