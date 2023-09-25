@@ -37,15 +37,20 @@ class TinyVMEngine:
 
         # Check if self.merkle_tree is not None before calculating the Merkle root
         if self.merkle_tree is not None:
-            state_root = self.merkle_tree.root_hash().hex()
-            if block.state_root is None or state_root == block.state_root:
-                block.state_root = state_root
-                self.store_contract_state(self.system_contracts["accounts"], accounts_contract_state)
-                if staking_contract_state is not None:
-                    self.store_contract_state(self.system_contracts["staking"], staking_contract_state)
-                return True
+            root_hash = self.merkle_tree.root_hash()
+            if root_hash is not None:
+                state_root = root_hash.hex()
+                if block.state_root is None or state_root == block.state_root:
+                    block.state_root = state_root
+                    self.store_contract_state(self.system_contracts["accounts"], accounts_contract_state)
+                    if staking_contract_state is not None:
+                        self.store_contract_state(self.system_contracts["staking"], staking_contract_state)
+                    return True
+                else:
+                    logging.info("Invalid state root")
+                    return False
             else:
-                logging.info("Invalid state root")
+                logging.info("Merkle tree root hash is None")
                 return False
         else:
             logging.info("Merkle tree is not initialized")
