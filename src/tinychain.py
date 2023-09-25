@@ -89,7 +89,6 @@ class Forger:
 
             # Get the previous block for validation
             previous_block = self.storage_engine.fetch_last_block()
-            print (f"Previous block height: {previous_block.height}")
             previous_block_hash = previous_block.block_hash
             block_height = previous_block.height + 1
 
@@ -102,12 +101,6 @@ class Forger:
 
                 self.storage_engine.store_block(block)
 
-                for transaction in transactions_to_include:
-                    self.transactionpool.remove_transaction(transaction)
-
-                #previous_block_hash = block.block_hash
-                #block_height += 1
-
             await asyncio.sleep(BLOCK_TIME)
 
     def start(self):
@@ -117,10 +110,10 @@ class Forger:
         self.running = False
 
 class StorageEngine:
-    def __init__(self):
+    def __init__(self, transactionpool):
+        self.transactionpool = transactionpool
         self.db_blocks = None
         self.db_states = None
-        self.last_block_hash = None
         self.open_databases()
         self.create_genesis_block()
 
@@ -163,13 +156,13 @@ class StorageEngine:
             'validator': block.validator,
             'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
-            print (json.dumps(block_data, cls=TransactionEncoder).encode())
             
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
 
-            self.last_block_hash = block.block_hash
+            for transaction in block.transactions:
+                self.transactionpool.remove_transaction(transaction)
 
-            logging.info(f"Stored block: {block.block_hash}")
+            logging.info(f"Stored block: {block.block_hash} at height {block.height}")
         except Exception as e:
             logging.error(f"Failed to store block: {e}")
 
@@ -215,10 +208,9 @@ class StorageEngine:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Create instances of components
-storage_engine = StorageEngine()
-#storage_engine.open_databases()
-validation_engine = ValidationEngine(storage_engine)
 transactionpool = TransactionPool(max_size=MAX_TX_POOL)
+storage_engine = StorageEngine(transactionpool)
+validation_engine = ValidationEngine(storage_engine)
 forger = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY)
 tvm_engine = TinyVMEngine(storage_engine)
 storage_engine.set_tvm_engine(tvm_engine)
@@ -234,11 +226,11 @@ async def broadcast_transaction(transaction_data):
                 async with session.post(url, json={'transaction': transaction_data}) as response:
                     if response.status == 200:
                         response_data = await response.json()
-                        print(f"Transaction sent to {peer_uri}: {response_data}")
+                        logging.info(f"Transaction sent to {peer_uri}: {response_data}")
                     else:
-                        print(f"Failed to send transaction to {peer_uri}")
+                        logging.info(f"Failed to send transaction to {peer_uri}")
         except aiohttp.ClientError as e:
-            print(f"Error sending transaction to {peer_uri}: {e}")
+            logging.info(f"Error sending transaction to {peer_uri}: {e}")
 
 async def send_transaction(request):
     data = await request.json()
@@ -269,24 +261,6 @@ async def receive_transaction(request):
         except jsonschema.exceptions.ValidationError:
             pass
     return web.json_response({'error': 'Invalid transaction data'}, status=400)
-
-async def receive_block(request):
-    data = await request.json()
-    if 'block' in data:
-        block_data = data['block']
-        try:
-            validate(instance=block_data, schema=block_schema)
-            block = Block(**block_data)
-            if block.state_root is None:
-                return web.json_response({'error': 'Block state root is None'}, status=400)
-            if validation_engine.validate_block(block):
-                storage_engine.store_block(block)
-                logging.info("[Receiver API] block received")
-                return web.json_response({'message': 'Block added to the blockchain', 'block_hash': block.block_hash})
-        except jsonschema.exceptions.ValidationError:
-            pass
-    return web.json_response({'error': 'Invalid block data'}, status=400)
-
 
 async def get_block_by_hash(request):
     block_hash = request.match_info['block_hash']

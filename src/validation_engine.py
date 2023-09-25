@@ -47,15 +47,17 @@ class ValidationEngine:
         except ecdsa.BadSignatureError:
             return False
 
-    def validate_block(self, block, previous_block=None):
+    def validate_block(self, block, previous_block):
         if not isinstance(block, Block):
             return False
         
         if not self.is_valid_block_hash(block.block_hash):
             return False
 
-        # If there is no previous block, allow the first block to pass validation
-        if previous_block is None:
+        if block.previous_block_hash != previous_block.block_hash:
+            return False
+        
+        if not self.is_valid_block_hash(block.previous_block_hash):
             return False
 
         if block.height != previous_block.height + 1:
