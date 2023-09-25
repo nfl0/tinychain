@@ -70,8 +70,15 @@ class Forger:
         self.validator_address = validator_address
         self.running = True
         self.production_enabled = True
-        self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
-        self.block_height = (last_block_data['height'] + 1) if last_block_data else 0
+        if last_block_data:
+            self.previous_block_hash = last_block_data['block_hash']
+            self.block_height = last_block_data['height'] + 1
+        else:
+            # Create genesis block
+            genesis_block = Block(0, [], self.validator_address)
+            self.storage_engine.store_block(genesis_block)
+            self.previous_block_hash = genesis_block.block_hash
+            self.block_height = 1
         self.block_timer = None
 
     def toggle_production(self):
