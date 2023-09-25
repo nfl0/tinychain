@@ -1,6 +1,25 @@
 import blake3
 import time
 from transaction import Transaction
+from transaction import transaction_schema
+
+block_schema = {
+    'type': 'object',
+    'properties': {
+        'height': {'type': 'number'},
+        'transactions': {
+            'type': 'array',
+            'items': transaction_schema
+            },
+        'previous_block_hash': {'type':'string'},
+        'validator': {'type':'string'},
+        'timestamp': {'type': 'number'},
+        'state_root': {'type':'string'}
+        },
+        'required': ['height', 'transactions', 'previous_block_hash', 'validator', 'timestamp','state_root']
+}
+
+
 
 class Block:
     def __init__(self, height, transactions, validator_address, previous_block_hash=None, timestamp=None, state_root=None):
@@ -9,15 +28,15 @@ class Block:
         self.timestamp = timestamp or int(time.time())
         self.validator = validator_address
         self.previous_block_hash = previous_block_hash
-        self.state_root = state_root  # Add state_root attribute
+        self.state_root = state_root
         self.merkle_root = self.calculate_merkle_root()
         self.block_hash = self.generate_block_hash()
 
     def generate_block_hash(self):
-        values = [self.merkle_root, str(self.timestamp), str(self.state_root)]  # Include state_root in hash generation
+        values = [self.merkle_root, str(self.timestamp), str(self.state_root)]
         if self.previous_block_hash:
             values.append(str(self.previous_block_hash))
-        concatenated_string = ''.join(values).encode()  # Encode to bytes
+        concatenated_string = ''.join(values).encode()
         return blake3.blake3(concatenated_string).hexdigest()
 
     def calculate_merkle_root(self):
