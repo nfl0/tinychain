@@ -9,6 +9,7 @@ import jsonschema
 import blake3
 
 from block import Block
+from block import block_schema
 from transaction import transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
@@ -249,6 +250,24 @@ async def receive_transaction(request):
         except jsonschema.exceptions.ValidationError:
             pass
     return web.json_response({'error': 'Invalid transaction data'}, status=400)
+
+async def receive_block(request):
+    data = await request.json()
+    if 'block' in data:
+        block_data = data['block']
+        try:
+            validate(instance=block_data, schema=block_schema)
+            block = Block(**block_data)
+            if block.state_root is None:
+                return web.json_response({'error': 'Block state root is None'}, status=400)
+            if validation_engine.validate_block(block):
+                storage_engine.store_block(block)
+                logging.info("[Receiver API] block received")
+                return web.json_response({'message': 'Block added to the blockchain', 'block_hash': block.block_hash})
+        except jsonschema.exceptions.ValidationError:
+            pass
+    return web.json_response({'error': 'Invalid block data'}, status=400)
+
 
 async def get_block_by_hash(request):
     block_hash = request.match_info['block_hash']
