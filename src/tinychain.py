@@ -63,16 +63,13 @@ class TransactionPool:
         return not self.transactions
 
 class Forger:
-    def __init__(self, transactionpool, storage_engine, validation_engine, validator_address, last_block_data):
+    def __init__(self, transactionpool, storage_engine, validation_engine, validator_address):
         self.transactionpool = transactionpool
         self.storage_engine = storage_engine
         self.validation_engine = validation_engine
         self.validator_address = validator_address
         self.running = True
         self.production_enabled = True
-        self.previous_block_hash = last_block_data['block_hash'] if last_block_data else None
-        self.block_height = (last_block_data['height'] + 1) if last_block_data else 0
-        self.block_timer = None
 
     def toggle_production(self):
         self.production_enabled = not self.production_enabled
@@ -91,23 +88,25 @@ class Forger:
             transactions_to_include = [t for t in valid_transactions_to_forge if t.confirmed is None][:MAX_TX_BLOCK]
 
             # Get the previous block for validation
-            previous_block_data = storage_engine.fetch_last_block()
-            previous_block = Block.from_dict(previous_block_data) if previous_block_data else None
+            previous_block = self.storage_engine.fetch_last_block()
+            print (f"Previous block height: {previous_block.height}")
+            previous_block_hash = previous_block.block_hash
+            block_height = previous_block.height + 1
 
             # Create a new block
-            block = Block(self.block_height, transactions_to_include, self.validator_address, self.previous_block_hash)
+            block = Block(block_height, transactions_to_include, self.validator_address, previous_block_hash)
 
             if self.validation_engine.validate_block(block, previous_block):
                 for transaction in transactions_to_include:
-                    transaction.confirmed = self.block_height
+                    transaction.confirmed = block_height
 
                 self.storage_engine.store_block(block)
 
                 for transaction in transactions_to_include:
                     self.transactionpool.remove_transaction(transaction)
 
-                self.previous_block_hash = block.block_hash
-                self.block_height += 1
+                #previous_block_hash = block.block_hash
+                #block_height += 1
 
             await asyncio.sleep(BLOCK_TIME)
 
@@ -122,13 +121,14 @@ class StorageEngine:
         self.db_blocks = None
         self.db_states = None
         self.last_block_hash = None
+        self.open_databases()
         self.create_genesis_block()
 
     def create_genesis_block(self):
         # Check if the blockchain is empty
         if self.fetch_last_block() is None:
             # Create the genesis block
-            genesis_block = Block(0, [], VALIDATOR_PUBLIC_KEY)
+            genesis_block = Block(0, [], VALIDATOR_PUBLIC_KEY, "0000000000000000000000000000000000000000000000000000000000000000")
             # Store the genesis block
             self.store_block(genesis_block)
 
@@ -146,8 +146,11 @@ class StorageEngine:
         except Exception as e:
             logging.error(f"Failed to close databases: {e}")
 
+    def set_tvm_engine(self, tvm_engine):
+        self.tvm_engine = tvm_engine
+
     def store_block(self, block):
-        if tvm_engine.execute_block(block) is False:
+        if hasattr(self, 'tvm_engine') and self.tvm_engine.execute_block(block) is False:
             return
         try:
             block_data = {
@@ -160,6 +163,7 @@ class StorageEngine:
             'validator': block.validator,
             'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
+            print (json.dumps(block_data, cls=TransactionEncoder).encode())
             
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
 
@@ -181,12 +185,17 @@ class StorageEngine:
     
     def fetch_last_block(self):
         last_block = None
-        for block_hash, block_data in self.db_blocks.iterator(reverse=True):
-            block_info = json.loads(block_data.decode())
-            if last_block is None or block_info['height'] > last_block['height']:
-                last_block = block_info
+        max_height = -1
+        
+        if self.db_blocks is not None:
+            for block_key, block_data in self.db_blocks.iterator(reverse=True):
+                block = Block.from_dict(json.loads(block_data.decode()))
+                if block.height > max_height:
+                    max_height = block.height
+                    last_block = block
+
         return last_block
-    
+
     def store_contract_state(self, contract_address, state_data):
         try:
             self.db_states.put(contract_address.encode(), json.dumps(state_data).encode())
@@ -207,12 +216,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Create instances of components
 storage_engine = StorageEngine()
-storage_engine.open_databases()
+#storage_engine.open_databases()
 validation_engine = ValidationEngine(storage_engine)
 transactionpool = TransactionPool(max_size=MAX_TX_POOL)
-last_block_data = storage_engine.fetch_last_block()
-validator = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY, last_block_data)
+forger = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY)
 tvm_engine = TinyVMEngine(storage_engine)
+storage_engine.set_tvm_engine(tvm_engine)
+
 
 # Api Endpoints
 
@@ -293,8 +303,8 @@ async def get_balance(request):
     return web.json_response({'error': 'Account not found'}, status=404)
 
 async def toggle_production(request):
-    validator.toggle_production()
-    production_status = "enabled" if validator.production_enabled else "disabled"
+    forger.toggle_production()
+    production_status = "enabled" if forger.production_enabled else "disabled"
     return web.json_response({'message': f'Block production {production_status}'})
 
 app.router.add_post('/toggle_production', toggle_production)
@@ -304,7 +314,7 @@ app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
 
 async def cleanup(app):
-    validator.stop()
+    forger.stop()
     await asyncio.gather(*[t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
     storage_engine.close()
 
@@ -319,7 +329,7 @@ if __name__ == '__main__':
     site = web.TCPSite(app_runner, host='0.0.0.0', port=HTTP_PORT)
     loop.run_until_complete(site.start())
 
-    loop.create_task(validator.forge_new_block()) 
+    loop.create_task(forger.forge_new_block()) 
     
     try:
         loop.run_forever()

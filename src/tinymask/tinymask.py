@@ -145,14 +145,8 @@ if __name__ == '__main__':
                     {
                         'sender': sender_address.hex(),
                         'receiver': "7374616b696e67",
-                        'amount': 3,
-                        'memo': 'stake'
-                    },
-                    {
-                        'sender': sender_address.hex(),
-                        'receiver': "7374616b696e67",
                         'amount': 1,
-                        'memo': 'stake'
+                        'memo': 'unstake'
                     }
                 ]
 
@@ -165,7 +159,7 @@ if __name__ == '__main__':
                     response = send_transaction(formatted_transaction)
                     print("Transaction Response:", response)
 
-                time.sleep(0.5)  # Wait for half a second before sending the next preset transactions
+                time.sleep(11)  # Wait for half a second before sending the next preset transactions
 
             print("Preset transactions sent to custom addresses.")
         elif option == 5:

@@ -19,14 +19,8 @@ block_schema = {
         'required': ['height', 'transactions', 'previous_block_hash', 'validator', 'timestamp','state_root']
 }
 
-
-
 class Block:
     def __init__(self, height, transactions, validator_address, previous_block_hash=None, timestamp=None, state_root=None):
-        if previous_block_hash:
-            previous_block = self.get_block_by_hash(previous_block_hash)
-            if previous_block and previous_block.height != height - 1:
-                raise ValueError("Block height is not incrementing correctly")
         self.height = height
         self.transactions = transactions
         self.timestamp = timestamp or int(time.time())

@@ -2,7 +2,7 @@ import ecdsa
 from ecdsa import VerifyingKey
 import time
 from block import Block
-import re # todos: validate previous_bock_hash against regex. also, check transaction.amount > 0 
+import re # todos: validate previous_bock_hash against regex.  
 
 class ValidationEngine:
     def __init__(self, storage_engine):
@@ -11,18 +11,31 @@ class ValidationEngine:
     def is_valid_address(self, address):
         return bool(re.match(r'^[0-9a-fA-F]+$', address))
 
+    def is_valid_block_hash(self, block_hash):
+        return bool(re.match(r'^[0-9a-fA-F]+$', block_hash))
+
     def validate_transaction(self, transaction):
+
+        if not self.is_valid_address(transaction.sender):
+            return False
+
+        if not self.is_valid_address(transaction.receiver):
+            return False
+
+        if transaction.amount <= 0:
+            return False
+        
+        if len(transaction.memo) > 256:
+            return False
+
         sender_balance = self.storage_engine.fetch_balance(transaction.sender)
-        if (
-            sender_balance is not None
-            and sender_balance >= transaction.amount
-            and self.verify_transaction_signature(transaction)
-            and self.is_valid_address(transaction.sender)
-            and self.is_valid_address(transaction.receiver)
-            and transaction.amount > 0
-        ):
-            return True
-        return False
+        if sender_balance is None or sender_balance < transaction.amount:
+            return False
+
+        if not self.verify_transaction_signature(transaction):
+            return False
+
+        return True
 
     def verify_transaction_signature(self, transaction):
         public_key = transaction.sender
@@ -37,12 +50,16 @@ class ValidationEngine:
     def validate_block(self, block, previous_block=None):
         if not isinstance(block, Block):
             return False
+        
+        if not self.is_valid_block_hash(block.block_hash):
+            return False
 
         # If there is no previous block, allow the first block to pass validation
         if previous_block is None:
-            return True
+            return False
 
         if block.height != previous_block.height + 1:
+            print("block.height != previous_block.height + 1")
             return False
 
         time_tolerance = 2
@@ -52,12 +69,14 @@ class ValidationEngine:
 
         computed_hash = block.generate_block_hash()
         if block.block_hash != computed_hash:
+            print("block.block_hash != computed_hash")
             return False
 
         # Calculate the Merkle root of the block's transactions
         computed_merkle_root = block.calculate_merkle_root()
 
         if block.merkle_root != computed_merkle_root:
+            print("block.merkle_root != computed_merkle_root")
             return False
 
         for transaction in block.transactions:
