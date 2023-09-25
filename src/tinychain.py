@@ -122,6 +122,15 @@ class StorageEngine:
         self.db_blocks = None
         self.db_states = None
         self.last_block_hash = None
+        self.create_genesis_block()
+
+    def create_genesis_block(self):
+        # Check if the blockchain is empty
+        if self.fetch_last_block() is None:
+            # Create the genesis block
+            genesis_block = Block(0, [], VALIDATOR_PUBLIC_KEY)
+            # Store the genesis block
+            self.store_block(genesis_block)
 
     def open_databases(self):
         try:
