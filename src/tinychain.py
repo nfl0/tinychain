@@ -13,6 +13,7 @@ from block import block_schema
 from transaction import transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
+from wallet import Wallet
 from parameters import HTTP_PORT, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
 PEER_URIS = 'localhost:5010'
@@ -142,9 +143,12 @@ class StorageEngine:
     def set_tvm_engine(self, tvm_engine):
         self.tvm_engine = tvm_engine
 
-    def store_block(self, block):
+    def store_block(self, block, is_sync=False):
         if hasattr(self, 'tvm_engine') and self.tvm_engine.execute_block(block) is False:
             return
+        if not is_sync:
+            block.signature = wallet.sign_message(block.block_hash)
+
         try:
             block_data = {
             'block_hash': block.block_hash,
@@ -154,9 +158,13 @@ class StorageEngine:
             'state_root': block.state_root,
             'previous_block_hash': block.previous_block_hash,
             'validator': block.validator,
+            'signature': block.signature,
             'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
             
+            #broadcast_block(block)
+            print (block_data)
+
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
 
             for transaction in block.transactions:
@@ -208,6 +216,7 @@ class StorageEngine:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Create instances of components
+wallet = Wallet()
 transactionpool = TransactionPool(max_size=MAX_TX_POOL)
 storage_engine = StorageEngine(transactionpool)
 validation_engine = ValidationEngine(storage_engine)
@@ -217,6 +226,48 @@ storage_engine.set_tvm_engine(tvm_engine)
 
 
 # Api Endpoints
+
+
+async def broadcast_block(block):
+    try:
+        block_data = block.to_dict()  # Serialize the block to a dictionary
+        for peer_uri in PEER_URIS:
+            async with aiohttp.ClientSession() as session:
+                url = f"http://{peer_uri}/receive_block"
+                async with session.post(url, json=block_data) as response:
+                    if response.status == 200:
+                        response_data = await response.json()
+                        logging.info(f"Block sent to {peer_uri}: {response_data}")
+                    else:
+                        logging.info(f"Failed to send block to {peer_uri}")
+    except aiohttp.ClientError as e:
+        logging.info(f"Error sending block to peers: {e}")
+
+
+async def receive_block(request):
+    try:
+        block_data = await request.json()
+        # Deserialize the received block data into a Block object
+        received_block = Block.from_dict(block_data)
+
+        # Validate the received block before adding it to the blockchain
+        if isinstance(received_block, Block) is False:
+            return web.json_response({'error': 'Invalid block data'}, status=400)
+        if Wallet.verify_signature(received_block.validator, received_block.block_hash, received_block.signature) is False:
+            return web.json_response({'error': 'Invalid block data'}, status=400)
+        if validation_engine.validate_block(received_block, storage_engine.fetch_last_block()):
+            storage_engine.store_block(received_block)
+            return web.json_response({'message': 'Block added to the blockchain', 'block_hash': received_block.block_hash})
+        else:
+            return web.json_response({'error': 'Invalid block data'}, status=400)
+    except json.JSONDecodeError:
+        return web.json_response({'error': 'Invalid JSON data'}, status=400)
+    except Exception as e:
+        return web.json_response({'error': f'Error receiving block: {str(e)}'}, status=500)
+
+
+
+
 
 async def broadcast_transaction(transaction_data):
     for peer_uri in PEER_URIS:
@@ -286,6 +337,7 @@ app.router.add_post('/send_transaction', send_transaction)
 app.router.add_post('/receive_transaction', receive_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
+app.router.add_post('/receive_block', receive_block)
 
 async def cleanup(app):
     forger.stop()

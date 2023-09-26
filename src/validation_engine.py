@@ -1,8 +1,10 @@
 import ecdsa
 from ecdsa import VerifyingKey
 import time
-from block import Block
 import re # todos: validate previous_bock_hash against regex.  
+
+from wallet import Wallet
+from block import Block
 
 class ValidationEngine:
     def __init__(self, storage_engine):
@@ -32,6 +34,9 @@ class ValidationEngine:
         if sender_balance is None or sender_balance < transaction.amount:
             return False
 
+        # todos: validate signature.
+        #if not Wallet.verify_signature(transaction.sender, transaction.signature, transaction.message):
+        #    return False
         if not self.verify_transaction_signature(transaction):
             return False
 

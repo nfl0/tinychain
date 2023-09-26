@@ -146,7 +146,7 @@ if __name__ == '__main__':
                         'sender': sender_address.hex(),
                         'receiver': "7374616b696e67",
                         'amount': 1,
-                        'memo': 'unstake'
+                        'memo': 'stake'
                     }
                 ]
 

@@ -14,13 +14,14 @@ block_schema = {
         'previous_block_hash': {'type':'string'},
         'validator': {'type':'string'},
         'timestamp': {'type': 'number'},
-        'state_root': {'type':'string'}
+        'state_root': {'type':'string'},
+        'signature': {'type':'string'}
         },
-        'required': ['height', 'transactions', 'previous_block_hash', 'validator', 'timestamp','state_root']
+        'required': ['height', 'transactions', 'previous_block_hash', 'validator', 'timestamp','state_root', 'signature']
 }
 
 class Block:
-    def __init__(self, height, transactions, validator_address, previous_block_hash=None, timestamp=None, state_root=None):
+    def __init__(self, height, transactions, validator_address, previous_block_hash=None, timestamp=None, state_root=None, signature=None):
         self.height = height
         self.transactions = transactions
         self.timestamp = timestamp or int(time.time())
@@ -29,6 +30,7 @@ class Block:
         self.state_root = state_root
         self.merkle_root = self.calculate_merkle_root()
         self.block_hash = self.generate_block_hash()
+        self.signature = signature
 
     def generate_block_hash(self):
         values = [self.merkle_root, str(self.timestamp), str(self.state_root)]
@@ -68,5 +70,8 @@ class Block:
         # Access the 'state_root' key with a default value of None if it doesn't exist
         state_root = block_data.get('state_root', None)
 
-        return cls(height, transactions, validator_address, previous_block_hash, timestamp, state_root)
+        # Access the'signature' key with a default value of None if it doesn't exist
+        signature = block_data.get('signature', None)
+
+        return cls(height, transactions, validator_address, previous_block_hash, timestamp, state_root, signature)
 
