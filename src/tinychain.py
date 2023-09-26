@@ -16,7 +16,7 @@ from vm import TinyVMEngine
 from wallet import Wallet
 from parameters import HTTP_PORT, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
-PEER_URIS = 'localhost:5010'
+PEER_URIS = '127.0.0.1:5010'
 
 app = web.Application()
 
@@ -227,7 +227,6 @@ storage_engine.set_tvm_engine(tvm_engine)
 
 # Api Endpoints
 
-
 async def broadcast_block(block):
     try:
         block_data = block.to_dict()  # Serialize the block to a dictionary
@@ -242,7 +241,6 @@ async def broadcast_block(block):
                         logging.info(f"Failed to send block to {peer_uri}")
     except aiohttp.ClientError as e:
         logging.info(f"Error sending block to peers: {e}")
-
 
 async def receive_block(request):
     try:
@@ -265,10 +263,10 @@ async def receive_block(request):
     except Exception as e:
         return web.json_response({'error': f'Error receiving block: {str(e)}'}, status=500)
 
-
-
-
-
+# the node has to secure a connection with the other peer before it can participate in consensus
+# use ws
+# once number of connected peers falls to 0, the node should stop participating in consensus (can receive and store transactions but not forge)
+    
 async def broadcast_transaction(transaction_data):
     for peer_uri in PEER_URIS:
         try:
@@ -292,7 +290,7 @@ async def send_transaction(request):
             transaction = Transaction(**transaction_data)
             if validation_engine.validate_transaction(transaction):
                 transactionpool.add_transaction(transaction)
-                #await broadcast_transaction(transaction_data)
+                await broadcast_transaction(transaction_data)
                 return web.json_response({'message': 'Transaction added to the transaction pool', 'transaction_hash': transaction.transaction_hash})
         except jsonschema.exceptions.ValidationError:
             pass
