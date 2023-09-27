@@ -149,6 +149,7 @@ class Forger:
             block = Block(block_header, valid_transactions_to_forge)
 
             if self.validation_engine.validate_block(block, previous_block_header):
+                # keep in memory while 2/3 validators sign?
                 self.storage_engine.store_block(block)
 
             await asyncio.sleep(BLOCK_TIME)
