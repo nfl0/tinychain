@@ -16,17 +16,24 @@ from vm import TinyVMEngine
 from wallet import Wallet
 from parameters import HTTP_PORT, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
+# 1 tinycoin = 1000000000000000000 tatoshi
+# tinychain node only understands tatoshi
+tinycoin = 1000000000000000000
+
+
 PEER_URIS = '127.0.0.1:5010'
 
 app = web.Application()
 
 class Transaction:
-    def __init__(self, **kwargs):
+    def __init__(self, fee, nonce, **kwargs):
         self.__dict__.update(kwargs)
         self.memo = kwargs.get('memo', '')
         self.message = f"{self.sender}-{self.receiver}-{self.amount}-{self.memo}"
         self.transaction_hash = self.generate_transaction_hash()
         self.confirmed = None
+        self.fee = fee
+        self.nonce = nonce
 
     def generate_transaction_hash(self):
         values = [str(self.sender), str(self.receiver), str(self.amount), str(self.signature)]
@@ -97,9 +104,7 @@ class Forger:
             block = Block(block_height, transactions_to_include, self.validator_address, previous_block_hash)
 
             if self.validation_engine.validate_block(block, previous_block):
-                for transaction in transactions_to_include:
-                    transaction.confirmed = block_height
-
+                # we might want to instead of storing directly to storage, broadcast it and gather votes... consensus and ship
                 self.storage_engine.store_block(block)
 
             await asyncio.sleep(BLOCK_TIME)
@@ -114,21 +119,26 @@ class StorageEngine:
     def __init__(self, transactionpool):
         self.transactionpool = transactionpool
         self.db_blocks = None
+        self.db_transactions = None
         self.db_states = None
         self.open_databases()
         self.create_genesis_block()
+
+    def get_genesis_transactions(self):
+        return [Transaction(sender="000000000000000000000000000000000000000000000000000000000000000", receiver=VALIDATOR_PUBLIC_KEY, amount=100000000000, signature="0000000000000000000000000000000000000000000000000000000000", memo="genesis")]
 
     def create_genesis_block(self):
         # Check if the blockchain is empty
         if self.fetch_last_block() is None:
             # Create the genesis block
-            genesis_block = Block(0, [], VALIDATOR_PUBLIC_KEY, "0000000000000000000000000000000000000000000000000000000000000000")
+            genesis_block = Block(0, [], VALIDATOR_PUBLIC_KEY, "0000000000000000000000000000000000000000000000000000000000000000", 1465154705)
             # Store the genesis block
-            self.store_block(genesis_block)
+            self.store_block(genesis_block, is_sync=True, is_genesis=True)
 
     def open_databases(self):
         try:
             self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
+            self.db_transactions = plyvel.DB('transactions.db', create_if_missing=True)
             self.db_states = plyvel.DB('state.db', create_if_missing=True)
         except Exception as e:
             logging.error(f"Failed to open databases: {e}")
@@ -136,6 +146,7 @@ class StorageEngine:
     def close_databases(self):
         try:
             self.db_blocks.close()
+            self.db_transactions.close()
             self.db_states.close()
         except Exception as e:
             logging.error(f"Failed to close databases: {e}")
@@ -143,36 +154,67 @@ class StorageEngine:
     def set_tvm_engine(self, tvm_engine):
         self.tvm_engine = tvm_engine
 
-    def store_block(self, block, is_sync=False):
+    def store_block(self, block, is_sync=False, is_genesis=False):
         if hasattr(self, 'tvm_engine') and self.tvm_engine.execute_block(block) is False:
+            logging.info("Block failed to execute")
             return
+        else:
+            logging.info("Block executed")
+
         if not is_sync:
             block.signature = wallet.sign_message(block.block_hash)
 
         try:
             block_data = {
-            'block_hash': block.block_hash,
-            'height': block.height,
-            'timestamp': block.timestamp,
-            'merkle_root': block.merkle_root,
-            'state_root': block.state_root,
-            'previous_block_hash': block.previous_block_hash,
-            'validator': block.validator,
-            'signature': block.signature,
-            'transactions': [transaction.to_dict() for transaction in block.transactions]
+                'block_hash': block.block_hash,
+                'height': block.height,
+                'timestamp': block.timestamp,
+                'merkle_root': block.merkle_root,
+                'state_root': block.state_root,
+                'previous_block_hash': block.previous_block_hash,
+                'validator': block.validator,
+                'signature': block.signature,
+                'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
-            
-            #broadcast_block(block)
-            print (block_data)
+
+            if not is_genesis:
+                # broadcast_block(block)
+                print(block_data)
+            else:
+                print("genesis block")
+                print(block_data)
+
+            # Loop through transactions and update their confirmed attribute
+            for transaction in block.transactions:
+                transaction.confirmed = block.height
 
             self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
 
             for transaction in block.transactions:
                 self.transactionpool.remove_transaction(transaction)
+                self.set_nonce_for_account(transaction.sender, transaction.nonce + 1)
 
             logging.info(f"Stored block: {block.block_hash} at height {block.height}")
         except Exception as e:
             logging.error(f"Failed to store block: {e}")
+
+
+    def store_transaction(self, transaction):
+        try:
+            transaction_data = {
+                'transaction_hash': transaction.transaction_hash,
+                "sender": transaction.sender,
+                "receiver": transaction.receiver,
+                "amount": transaction.amount,
+                "fee": transaction.fee,
+                "nonce": transaction.nonce,
+                "signature": transaction.signature,
+                "memo": transaction.memo
+            }
+            self.db_transactions.put(transaction.transaction_hash.encode(), json.dumps(transaction_data))
+            logging.info(f"Stored transaction: {transaction.transaction_hash}")
+        except Exception as e:
+            logging.error(f"Failed to store transaction: {e}")
 
     def fetch_balance(self, account_address):
         accounts_state = self.fetch_contract_state("6163636f756e7473")
@@ -196,6 +238,29 @@ class StorageEngine:
                     last_block = block
 
         return last_block
+
+    def fetch_transaction(self, transaction_hash):
+        transaction_data = self.db_transactions.get(transaction_hash.encode())
+        return json.loads(transaction_data.decode()) if transaction_data is not None else None
+
+    def get_nonce_for_account(self, account_address):
+        accounts_state = self.fetch_contract_state("6163636f756e7473")
+        if accounts_state is not None:
+            account_data = accounts_state.get(account_address, None)
+            if account_data is not None:
+                balance, nonce = account_data
+                return nonce
+        return 0
+    
+    def set_nonce_for_account(self, account_address, nonce):
+        contract_address = "6163636f756e7473"
+        accounts_state = self.fetch_contract_state(contract_address)
+        if accounts_state is not None:
+            if account_address in accounts_state:
+                accounts_state[account_address][1] = nonce
+            else:
+                accounts_state[account_address] = [0, nonce]
+            self.store_contract_state(contract_address, accounts_state)
 
     def store_contract_state(self, contract_address, state_data):
         try:
@@ -227,6 +292,7 @@ storage_engine.set_tvm_engine(tvm_engine)
 
 # Api Endpoints
 
+
 async def broadcast_block(block):
     try:
         block_data = block.to_dict()  # Serialize the block to a dictionary
@@ -254,7 +320,7 @@ async def receive_block(request):
         if Wallet.verify_signature(received_block.validator, received_block.block_hash, received_block.signature) is False:
             return web.json_response({'error': 'Invalid block data'}, status=400)
         if validation_engine.validate_block(received_block, storage_engine.fetch_last_block()):
-            storage_engine.store_block(received_block)
+            storage_engine.store_block(received_block, is_sync=True)
             return web.json_response({'message': 'Block added to the blockchain', 'block_hash': received_block.block_hash})
         else:
             return web.json_response({'error': 'Invalid block data'}, status=400)
@@ -263,8 +329,7 @@ async def receive_block(request):
     except Exception as e:
         return web.json_response({'error': f'Error receiving block: {str(e)}'}, status=500)
 
-# the node has to secure a connection with the other peer before it can participate in consensus
-# use ws
+# the node has to be connected to at least one other node before it can participate in consensus
 # once number of connected peers falls to 0, the node should stop participating in consensus (can receive and store transactions but not forge)
     
 async def broadcast_transaction(transaction_data):
@@ -311,6 +376,13 @@ async def receive_transaction(request):
             pass
     return web.json_response({'error': 'Invalid transaction data'}, status=400)
 
+async def get_transaction_by_hash(request):
+    transaction_hash = request.match_info['transaction_hash']
+    transaction_data = storage_engine.fetch_transaction(transaction_hash)
+    if transaction_data is not None:
+        return web.json_response(transaction_data)
+    return web.json_response({'error': 'Block not found'}, status=404)
+
 async def get_block_by_hash(request):
     block_hash = request.match_info['block_hash']
     block_data = storage_engine.fetch_block(block_hash)
@@ -334,6 +406,7 @@ app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
 app.router.add_post('/receive_transaction', receive_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
+app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
 app.router.add_post('/receive_block', receive_block)
 
