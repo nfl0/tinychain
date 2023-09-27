@@ -21,8 +21,8 @@ class TinyVMEngine:
         self.storage_contract_address = "73746f72616765" # the word'storage' in hex
         ### End of System SCs ###
 
-    def execute_block(self, block):
-
+    def exec(self, transactions, validator, given_state_root=None):
+        '''
         if block.height == 0:
             accounts_contract_state = {}
             staking_contract_state = {}
@@ -36,15 +36,15 @@ class TinyVMEngine:
             self.store_contract_state(self.staking_contract_address, staking_contract_state)
             print("genesis block state root: " + state_root)
             return True
-        
+        '''
         # Fetch the accounts contract state from cache or storage
         accounts_contract_state = self.get_contract_state(self.accounts_contract_address)
         staking_contract_state = self.get_contract_state(self.staking_contract_address)
         
         # Update validator account balance with block reward
-        self.execute_accounts_contract(accounts_contract_state, block.validator, None, BLOCK_REWARD, "credit")
+        self.execute_accounts_contract(accounts_contract_state, validator, None, BLOCK_REWARD, "credit")
 
-        for transaction in block.transactions:
+        for transaction in transactions:
             sender, receiver, amount, memo = (
                 transaction.sender,
                 transaction.receiver,
@@ -65,9 +65,11 @@ class TinyVMEngine:
 
         # Calculate the Merkle root and store it
         state_root = self.merkle_tree.root_hash().hex()
-        if block.state_root is None or state_root == block.state_root:
+        return state_root
+        '''
+        if given_state_root is None or state_root == given_state_root:
             # Write contract states from cache to storage
-            block.state_root = state_root
+            given_state_root = state_root
             self.store_contract_state(self.accounts_contract_address, accounts_contract_state)
             if staking_contract_state is not None:
                 self.store_contract_state(self.staking_contract_address, staking_contract_state)
@@ -75,6 +77,7 @@ class TinyVMEngine:
         else:
             logging.info("Invalid state root")
             return False
+        '''
 
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):

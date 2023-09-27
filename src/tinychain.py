@@ -7,8 +7,9 @@ import json
 from jsonschema import validate
 import jsonschema
 import blake3
+import time
 
-from block import Block
+from block import BlockHeader, Block
 from block import block_schema
 from transaction import transaction_schema
 from validation_engine import ValidationEngine
@@ -71,10 +72,11 @@ class TransactionPool:
         return not self.transactions
 
 class Forger:
-    def __init__(self, transactionpool, storage_engine, validation_engine, validator_address):
+    def __init__(self, transactionpool, storage_engine, validation_engine, wallet, validator_address):
         self.transactionpool = transactionpool
         self.storage_engine = storage_engine
         self.validation_engine = validation_engine
+        self.wallet = wallet
         self.validator_address = validator_address
         self.running = True
         self.production_enabled = True
@@ -82,29 +84,71 @@ class Forger:
     def toggle_production(self):
         self.production_enabled = not self.production_enabled
 
-    async def forge_new_block(self):
+    @staticmethod
+    def generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash):
+        values = [merkle_root, str(timestamp), str(state_root), previous_block_hash]
+        concatenated_string = ''.join(values).encode()
+        return blake3.blake3(concatenated_string).hexdigest()
+
+    @staticmethod
+    def compute_merkle_root(transaction_hashes):
+        if len(transaction_hashes) == 0:
+            return blake3.blake3(b'').hexdigest()
+
+        while len(transaction_hashes) > 1:
+            if len(transaction_hashes) % 2 != 0:
+                transaction_hashes.append(transaction_hashes[-1])
+            transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
+
+        if isinstance(transaction_hashes[0], str):
+            # If it's a string, encode it as bytes using UTF-8
+            transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
+
+        return blake3.blake3(transaction_hashes[0]).hexdigest()
+    
+    async def forge_new_block(self, replay=True, block_header=None):
         while self.running:
             if not self.production_enabled:
                 await asyncio.sleep(BLOCK_TIME)
                 continue
+            if replay is False:
+                transactions_to_forge = self.transactionpool.get_transactions()
+            else:
+                transactions_to_forge = block_header.transactions
 
-            transactions_to_forge = self.transactionpool.get_transactions()
-
-            valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
-
-            # Filter out already confirmed transactions
-            transactions_to_include = [t for t in valid_transactions_to_forge if t.confirmed is None][:MAX_TX_BLOCK]
+            valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)] # todo: check if transaction.nonce = previous nonce + 1
 
             # Get the previous block for validation
-            previous_block = self.storage_engine.fetch_last_block()
-            previous_block_hash = previous_block.block_hash
-            block_height = previous_block.height + 1
+            previous_block_header = self.storage_engine.fetch_last_block_header()
+            previous_block_hash = previous_block_header.block_hash
+            block_height = previous_block_header.height + 1
 
-            # Create a new block
-            block = Block(block_height, transactions_to_include, self.validator_address, previous_block_hash)
+            if replay is False:
+                validator = self.wallet.get_address()
+                timestamp = int(time.time())
+                # generate state root
+                state_root = self.tvm_engine.exec(valid_transactions_to_forge, validator)
+                # generate merkle root
+                transaction_hashes = [t.to_dict()['transaction_hash'] for t in valid_transactions_to_forge]
+                merkle_root = self.compute_merkle_root(transaction_hashes)
+                # generate block hash
+                block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
+                # sign the block
+                signature = [self.wallet.sign_message(block_hash)]
 
-            if self.validation_engine.validate_block(block, previous_block):
-                # we might want to instead of storing directly to storage, broadcast it and gather votes... consensus and ship
+                block_header = BlockHeader(
+                    block_height,
+                    timestamp,
+                    previous_block_hash,
+                    state_root,
+                    validator,
+                    signature,
+                    transaction_hashes
+                )
+
+            block = Block(block_header, valid_transactions_to_forge)
+
+            if self.validation_engine.validate_block(block, previous_block_header):
                 self.storage_engine.store_block(block)
 
             await asyncio.sleep(BLOCK_TIME)
@@ -118,6 +162,7 @@ class Forger:
 class StorageEngine:
     def __init__(self, transactionpool):
         self.transactionpool = transactionpool
+        self.db_headers = None
         self.db_blocks = None
         self.db_transactions = None
         self.db_states = None
@@ -128,15 +173,14 @@ class StorageEngine:
         return [Transaction(sender="000000000000000000000000000000000000000000000000000000000000000", receiver=VALIDATOR_PUBLIC_KEY, amount=100000000000, signature="0000000000000000000000000000000000000000000000000000000000", memo="genesis")]
 
     def create_genesis_block(self):
-        # Check if the blockchain is empty
-        if self.fetch_last_block() is None:
-            # Create the genesis block
+        if self.fetch_last_block_header() is None:
+            # todo: try to sync from peers
             genesis_block = Block(0, [], VALIDATOR_PUBLIC_KEY, "0000000000000000000000000000000000000000000000000000000000000000", 1465154705)
-            # Store the genesis block
             self.store_block(genesis_block, is_sync=True, is_genesis=True)
 
     def open_databases(self):
         try:
+            self.db_headers = plyvel.DB('headers.db', create_if_missing=True)
             self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
             self.db_transactions = plyvel.DB('transactions.db', create_if_missing=True)
             self.db_states = plyvel.DB('state.db', create_if_missing=True)
@@ -145,6 +189,7 @@ class StorageEngine:
 
     def close_databases(self):
         try:
+            self.db_headers.close()
             self.db_blocks.close()
             self.db_transactions.close()
             self.db_states.close()
@@ -160,9 +205,6 @@ class StorageEngine:
             return
         else:
             logging.info("Block executed")
-
-        if not is_sync:
-            block.signature = wallet.sign_message(block.block_hash)
 
         try:
             block_data = {
@@ -188,7 +230,10 @@ class StorageEngine:
             for transaction in block.transactions:
                 transaction.confirmed = block.height
 
-            self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data, cls=TransactionEncoder).encode())
+            # db_blocks should store the block data which is the block header and block body
+            # Store the block to the database
+            self.db_blocks.put(block.block_hash.encode(), json.dumps(block_data).encode())
+
 
             for transaction in block.transactions:
                 self.transactionpool.remove_transaction(transaction)
@@ -226,18 +271,18 @@ class StorageEngine:
         block_data = self.db_blocks.get(block_hash.encode())
         return json.loads(block_data.decode()) if block_data is not None else None
     
-    def fetch_last_block(self):
-        last_block = None
+    def fetch_last_block_header(self):
+        last_block_header = None
         max_height = -1
         
-        if self.db_blocks is not None:
-            for block_key, block_data in self.db_blocks.iterator(reverse=True):
-                block = Block.from_dict(json.loads(block_data.decode()))
-                if block.height > max_height:
-                    max_height = block.height
-                    last_block = block
+        if self.db_headers is not None:
+            for header_key, header_data in self.db_headers.iterator(reverse=True):
+                block_header = BlockHeader.from_dict(json.loads(header_data.decode()))
+                if block_header.height > max_height:
+                    max_height = block_header.height
+                    last_block_header = block_header
 
-        return last_block
+        return last_block_header
 
     def fetch_transaction(self, transaction_hash):
         transaction_data = self.db_transactions.get(transaction_hash.encode())
@@ -285,14 +330,14 @@ wallet = Wallet()
 transactionpool = TransactionPool(max_size=MAX_TX_POOL)
 storage_engine = StorageEngine(transactionpool)
 validation_engine = ValidationEngine(storage_engine)
-forger = Forger(transactionpool, storage_engine, validation_engine, VALIDATOR_PUBLIC_KEY)
+forger = Forger(transactionpool, storage_engine, validation_engine, wallet, VALIDATOR_PUBLIC_KEY)
 tvm_engine = TinyVMEngine(storage_engine)
 storage_engine.set_tvm_engine(tvm_engine)
 
 
 # Api Endpoints
 
-
+'''
 async def broadcast_block(block):
     try:
         block_data = block.to_dict()  # Serialize the block to a dictionary
@@ -319,7 +364,7 @@ async def receive_block(request):
             return web.json_response({'error': 'Invalid block data'}, status=400)
         if Wallet.verify_signature(received_block.validator, received_block.block_hash, received_block.signature) is False:
             return web.json_response({'error': 'Invalid block data'}, status=400)
-        if validation_engine.validate_block(received_block, storage_engine.fetch_last_block()):
+        if validation_engine.validate_block(received_block, storage_engine.fetch_last_block_header()):
             storage_engine.store_block(received_block, is_sync=True)
             return web.json_response({'message': 'Block added to the blockchain', 'block_hash': received_block.block_hash})
         else:
@@ -328,10 +373,8 @@ async def receive_block(request):
         return web.json_response({'error': 'Invalid JSON data'}, status=400)
     except Exception as e:
         return web.json_response({'error': f'Error receiving block: {str(e)}'}, status=500)
-
-# the node has to be connected to at least one other node before it can participate in consensus
-# once number of connected peers falls to 0, the node should stop participating in consensus (can receive and store transactions but not forge)
-    
+'''
+'''
 async def broadcast_transaction(transaction_data):
     for peer_uri in PEER_URIS:
         try:
@@ -345,7 +388,7 @@ async def broadcast_transaction(transaction_data):
                         logging.info(f"Failed to send transaction to {peer_uri}")
         except aiohttp.ClientError as e:
             logging.info(f"Error sending transaction to {peer_uri}: {e}")
-
+'''
 async def send_transaction(request):
     data = await request.json()
     if 'transaction' in data:
@@ -408,7 +451,7 @@ app.router.add_post('/receive_transaction', receive_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 app.router.add_get('/get_balance/{account_address}', get_balance)
-app.router.add_post('/receive_block', receive_block)
+#app.router.add_post('/receive_block', receive_block)
 
 async def cleanup(app):
     forger.stop()

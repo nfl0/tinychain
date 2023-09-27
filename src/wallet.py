@@ -11,11 +11,10 @@ class Wallet:
             pickle.dump(private_key, file)
         return True
 
-    def sign_message(self, block_hash):
+    def sign_message(self, message):
         with open(os.path.join(WALLET_PATH, "wallet.dat"), "rb") as file:
             private_key = pickle.load(file)
-            message = block_hash.encode()
-            signature = private_key.sign(message).hex()
+            signature = private_key.sign(message.encode()).hex()
             return signature
     
     def get_address(self):
@@ -24,9 +23,11 @@ class Wallet:
             public_key = private_key.get_verifying_key()
             return public_key.to_string().hex()
 
-    def verify_signature(self, public_key_hex, block_hash, signature):
+    def verify_signature(self, message, signature, public_key_hex=None):
+        if public_key_hex == None:
+            public_key_hex = self.get_address()
         public_key = ecdsa.VerifyingKey.from_string(bytes.fromhex(public_key_hex), curve=ecdsa.SECP256k1)
-        message = block_hash.encode()
+        message = message.encode()
         try:
             return public_key.verify(bytes.fromhex(signature), message)
         except ecdsa.BadSignatureError:

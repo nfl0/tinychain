@@ -1,6 +1,7 @@
 import ecdsa
 from ecdsa import VerifyingKey
 import time
+import blake3
 import re # todos: validate previous_bock_hash against regex.  
 
 from wallet import Wallet
@@ -59,42 +60,84 @@ class ValidationEngine:
         except ecdsa.BadSignatureError:
             return False
 
-    def validate_block(self, block, previous_block):
+    def validate_block_header(self, block, previous_block_header):
         if not isinstance(block, Block):
             return False
         
-        if not self.is_valid_block_hash(block.block_hash):
+        if not self.is_valid_block_hash(previous_block_header.block_hash):
             return False
 
-        if block.previous_block_hash != previous_block.block_hash:
-            return False
-        
-        if not self.is_valid_block_hash(block.previous_block_hash):
+        if not self.is_valid_block_hash(block.header.block_hash):
             return False
 
-        if block.height != previous_block.height + 1:
+        if block.header.previous_block_hash != previous_block_header.block_hash:
+            return False
+
+        if block.header.height != previous_block_header.height + 1:
             print("block.height != previous_block.height + 1")
             return False
 
         time_tolerance = 2
         current_time = int(time.time())
-        if not (previous_block.timestamp < block.timestamp < current_time + time_tolerance):
+        if not (previous_block_header.timestamp < block.header.timestamp < current_time + time_tolerance):
             return False
 
-        computed_hash = block.generate_block_hash()
-        if block.block_hash != computed_hash:
+        values = [block.header.merkle_root, str(block.header.timestamp), str(block.header.state_root), previous_block_header.block_hash]
+        concatenated_string = ''.join(values).encode()
+        computed_hash = blake3.blake3(concatenated_string).hexdigest()
+        if block.header.block_hash != computed_hash:
             print("block.block_hash != computed_hash")
             return False
 
-        # Calculate the Merkle root of the block's transactions
-        computed_merkle_root = block.calculate_merkle_root()
+        @staticmethod
+        def compute_merkle_root(transaction_hashes):
+            if len(transaction_hashes) == 0:
+                return blake3.blake3(b'').hexdigest()
 
-        if block.merkle_root != computed_merkle_root:
+            while len(transaction_hashes) > 1:
+                if len(transaction_hashes) % 2 != 0:
+                    transaction_hashes.append(transaction_hashes[-1])
+                transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
+
+            if isinstance(transaction_hashes[0], str):
+                # If it's a string, encode it as bytes using UTF-8
+                transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
+
+            return blake3.blake3(transaction_hashes[0]).hexdigest()
+
+        transaction_hashes = [t.to_dict()['transaction_hash'] for t in block.transactions]
+
+        # Calculate the Merkle root of the block's transactions
+        if len(transaction_hashes) == 0:
+            computed_merkle_root = blake3.blake3(b'').hexdigest()
+
+        if len(transaction_hashes) > 0:
+
+            while len(transaction_hashes) > 1:
+                if len(transaction_hashes) % 2 != 0:
+                    transaction_hashes.append(transaction_hashes[-1])
+                transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
+
+            if isinstance(transaction_hashes[0], str):
+                # If it's a string, encode it as bytes using UTF-8
+                transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
+
+        computed_merkle_root = blake3.blake3(transaction_hashes[0]).hexdigest()
+
+        if block.header.merkle_root != computed_merkle_root:
             print("block.merkle_root != computed_merkle_root")
             return False
 
-        for transaction in block.transactions:
+        # verify the signature
+        if Wallet.verify_signature(block.header.block_hash, block.header.signature, block.header.validator):
+            return False
+
+        for transaction in block.header.transactions:
             if not self.validate_transaction(transaction):
                 return False
 
         return True
+    
+
+
+# validate(sample_block_data['header'], block_header_schema)
