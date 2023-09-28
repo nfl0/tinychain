@@ -21,7 +21,7 @@ class TinyVMEngine:
         self.storage_contract_address = "73746f72616765" # the word'storage' in hex
         ### End of System SCs ###
 
-    def exec(self, transactions, validator, given_state_root=None):
+    def exec(self, transactions, validator):
         '''
         if block.height == 0:
             accounts_contract_state = {}
@@ -63,22 +63,10 @@ class TinyVMEngine:
                 else:
                     logging.info("Invalid memo. Try 'stake' or 'unstake'")
 
-        # Calculate the Merkle root and store it
+        # Calculate the Merkle root
+        state = {self.accounts_contract_address: accounts_contract_state, self.staking_contract_address: staking_contract_state}
         state_root = self.merkle_tree.root_hash().hex()
-        return state_root
-        '''
-        if given_state_root is None or state_root == given_state_root:
-            # Write contract states from cache to storage
-            given_state_root = state_root
-            self.store_contract_state(self.accounts_contract_address, accounts_contract_state)
-            if staking_contract_state is not None:
-                self.store_contract_state(self.staking_contract_address, staking_contract_state)
-            return True
-        else:
-            logging.info("Invalid state root")
-            return False
-        '''
-
+        return state_root, state
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
@@ -139,7 +127,3 @@ class TinyVMEngine:
             self.contract_state_cache[contract_address] = contract_state
 
             return contract_state
-
-    def store_contract_state(self, contract_address, state_data):
-        # This method writes to storage immediately if you decide to keep it as is
-        self.storage_engine.store_contract_state(contract_address, state_data)

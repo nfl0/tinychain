@@ -78,11 +78,7 @@ class Forger:
         self.validation_engine = validation_engine
         self.wallet = wallet
         self.validator_address = validator_address
-        self.running = True
         self.production_enabled = True
-
-    def toggle_production(self):
-        self.production_enabled = not self.production_enabled
 
     @staticmethod
     def generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash):
@@ -131,7 +127,7 @@ class Forger:
             validator = self.wallet.get_address()
             timestamp = int(time.time())
             # generate state root
-            state_root = self.tvm_engine.exec(valid_transactions_to_forge, validator)
+            state_root, new_state= self.tvm_engine.exec(valid_transactions_to_forge, validator)
             # generate merkle root
             transaction_hashes = [t.to_dict()['transaction_hash'] for t in valid_transactions_to_forge]
             merkle_root = self.compute_merkle_root(transaction_hashes)
@@ -153,8 +149,9 @@ class Forger:
         block = Block(block_header, valid_transactions_to_forge)
 
         if self.validation_engine.validate_block(block, previous_block_header):
-            # keep the block header in memory until 2/3 validators sign and drop if consensus fail?
-            self.storage_engine.store_block(block)
+            self.storage_engine.store_block(block) # todo: change to, keep the block header in memory until 2/3 validators sign and drop if consensus fail?
+            self.storage_engine.store_state({block.header.state_root: new_state})
+
             logging.info(f"Block forged and stored: {block.header.block_hash} at height {block.header.height}")
 
         logging.info("Block forging failed")
@@ -167,6 +164,7 @@ class StorageEngine:
         self.db_transactions = None
         self.db_states = None
         self.open_databases()
+        self.state = None
         self.create_genesis_block()
 
     #def get_genesis_transactions(self):
@@ -223,7 +221,7 @@ class StorageEngine:
         except Exception as e:
             logging.error(f"Failed to store block: {e}")
 
-    def store_transaction(self, transaction):
+    def store_transaction(self, transaction): # todo: rename to store_transaction_batch
         try:
             transaction_data = {
                 'transaction_hash': transaction.transaction_hash,
@@ -239,6 +237,10 @@ class StorageEngine:
             logging.info(f"Stored transaction: {transaction.transaction_hash}")
         except Exception as e:
             logging.error(f"Failed to store transaction: {e}")
+
+    def store_state(self, state_root, state):
+        self.state.append({state_root: state})
+        logging.error("state saved: ", state_root) # saved for when voting period ends and > 2/3 validators have signed
 
     def fetch_balance(self, account_address):
         accounts_state = self.fetch_contract_state("6163636f756e7473")
@@ -311,7 +313,6 @@ storage_engine = StorageEngine(transactionpool)
 validation_engine = ValidationEngine(storage_engine)
 forger = Forger(transactionpool, storage_engine, validation_engine, wallet, VALIDATOR_PUBLIC_KEY)
 tvm_engine = TinyVMEngine(storage_engine)
-storage_engine.set_tvm_engine(tvm_engine)
 
 
 # Api Endpoints
@@ -369,8 +370,6 @@ if __name__ == '__main__':
     site = web.TCPSite(app_runner, host='0.0.0.0', port=HTTP_PORT)
     loop.run_until_complete(site.start())
 
-    loop.create_task(forger.forge_new_block()) 
-    
     try:
         loop.run_forever()
     except KeyboardInterrupt:
