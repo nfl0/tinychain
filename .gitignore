@@ -2,3 +2,4 @@
 __pycache__
 blocks.db
 state.db
+settings.json

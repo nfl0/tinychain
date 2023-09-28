@@ -1,7 +1,4 @@
-import blake3
-import time
 from transaction import Transaction
-from transaction import transaction_schema
 
 block_header_schema = {
     'type': 'object',
@@ -29,6 +26,19 @@ class BlockHeader:
         self.signatures = signatures
         self.transaction_hashes = transaction_hashes
 
+    @classmethod
+    def from_dict(cls, header_data):
+        return cls(
+            header_data['block_hash'],
+            header_data['height'],
+            header_data['timestamp'],
+            header_data['previous_block_hash'],
+            header_data['state_root'],
+            header_data['validator'],
+            header_data['signatures'],
+            header_data['transaction_hashes']
+        )
+
 class Block:
     def __init__(self, header, transactions):
         self.header = header
@@ -36,17 +46,7 @@ class Block:
 
     @classmethod
     def from_dict(cls, block_data):
-        header_data = block_data.get('header', {})
-        header = BlockHeader(
-            header_data.get('block_hash', ''),
-            header_data.get('height', 0),
-            header_data.get('timestamp', int(time.time())),
-            header_data.get('previous_block_hash', ''),
-            header_data.get('state_root', ''),
-            header_data.get('validator', ''),
-            header_data.get('signatures', []),
-            header_data.get('transaction_hashes', [])
-        )
+        header = BlockHeader.from_dict(block_data['header'])
 
         transactions = [Transaction(**t) for t in block_data.get('transactions', [])]
 
