@@ -10,12 +10,11 @@ import blake3
 import time
 
 from block import BlockHeader, Block
-from block import block_schema
 from transaction import transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
 from wallet import Wallet
-from parameters import HTTP_PORT, BLOCK_TIME, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
+from parameters import HTTP_PORT, MAX_TX_BLOCK, MAX_TX_POOL, VALIDATOR_PUBLIC_KEY
 
 # 1 tinycoin = 1000000000000000000 tatoshi
 # tinychain node only understands tatoshi
@@ -173,8 +172,7 @@ class StorageEngine:
     def create_genesis_block(self):
         if self.fetch_last_block_header() is None:
             # todo: try to sync from peers
-            genesis_block = Block(0, [], VALIDATOR_PUBLIC_KEY, "0000000000000000000000000000000000000000000000000000000000000000", 1465154705)
-            self.store_block(genesis_block, is_sync=True, is_genesis=True)
+            logging.info("genesis_block")
 
     def open_databases(self):
         try:
@@ -355,7 +353,6 @@ app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 
 async def cleanup(app):
-    forger.stop()
     await asyncio.gather(*[t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
     storage_engine.close()
 
