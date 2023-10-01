@@ -1,7 +1,7 @@
 import ecdsa
 from ecdsa import VerifyingKey
 import time
-import blake3
+from blake3 import blake3
 import re # todos: validate previous_bock_hash against regex.  
 
 from wallet import Wallet
@@ -84,7 +84,7 @@ class ValidationEngine:
 
         values = [block.header.merkle_root, str(block.header.timestamp), str(block.header.state_root), previous_block_header.block_hash]
         concatenated_string = ''.join(values).encode()
-        computed_hash = blake3.blake3(concatenated_string).hexdigest()
+        computed_hash = blake3(concatenated_string).hexdigest()
         if block.header.block_hash != computed_hash:
             print("block.block_hash != computed_hash")
             return False
@@ -92,37 +92,37 @@ class ValidationEngine:
         @staticmethod
         def compute_merkle_root(transaction_hashes):
             if len(transaction_hashes) == 0:
-                return blake3.blake3(b'').hexdigest()
+                return blake3(b'').hexdigest()
 
             while len(transaction_hashes) > 1:
                 if len(transaction_hashes) % 2 != 0:
                     transaction_hashes.append(transaction_hashes[-1])
-                transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
+                transaction_hashes = [blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
 
             if isinstance(transaction_hashes[0], str):
                 # If it's a string, encode it as bytes using UTF-8
                 transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
 
-            return blake3.blake3(transaction_hashes[0]).hexdigest()
+            return blake3(transaction_hashes[0]).hexdigest()
 
         transaction_hashes = [t.to_dict()['transaction_hash'] for t in block.transactions]
 
         # Calculate the Merkle root of the block's transactions
         if len(transaction_hashes) == 0:
-            computed_merkle_root = blake3.blake3(b'').hexdigest()
+            computed_merkle_root = blake3(b'').hexdigest()
 
         if len(transaction_hashes) > 0:
 
             while len(transaction_hashes) > 1:
                 if len(transaction_hashes) % 2 != 0:
                     transaction_hashes.append(transaction_hashes[-1])
-                transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
+                transaction_hashes = [blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
 
             if isinstance(transaction_hashes[0], str):
                 # If it's a string, encode it as bytes using UTF-8
                 transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
 
-        computed_merkle_root = blake3.blake3(transaction_hashes[0]).hexdigest()
+        computed_merkle_root = blake3(transaction_hashes[0]).hexdigest()
 
         if block.header.merkle_root != computed_merkle_root:
             print("block.merkle_root != computed_merkle_root")
