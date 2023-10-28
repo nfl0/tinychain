@@ -8,51 +8,19 @@ from jsonschema.exceptions import ValidationError
 import blake3
 import time
 from block import BlockHeader, Block
-from transaction import transaction_schema
+from transaction import Transaction, transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
 from wallet import Wallet
 from parameters import HTTP_PORT, MAX_TX_POOL # todo: implement MAX_TX_BLOCK
 
-# 1 tinycoin = 1000000000000000000 tatoshi
-# tinychain node only understands tatoshi
-tinycoin = 1000000000000000000
+TINYCOIN = 1000000000000000000
+TINYCHAIN_UNIT = 'tatoshi'
 
 
 PEER_URIS = '127.0.0.1:5010'
 
 app = web.Application()
-
-class Transaction:
-    def __init__(self, fee, nonce, **kwargs):
-        self.__dict__.update(kwargs)
-        self.memo = kwargs.get('memo', '')
-        self.message = f"{self.sender}-{self.receiver}-{self.amount}-{self.memo}"
-        self.transaction_hash = self.generate_transaction_hash()
-        self.confirmed = None
-        self.fee = fee
-        self.nonce = nonce
-
-    def generate_transaction_hash(self):
-        values = [str(self.sender), str(self.receiver), str(self.amount), str(self.signature)]
-        return blake3.blake3(''.join(values).encode()).hexdigest()
-
-    def to_dict(self):
-        return {
-            'transaction_hash': self.transaction_hash,
-            'sender': self.sender,
-            'receiver': self.receiver,
-            'amount': self.amount,
-            'signature': self.signature,
-            'memo': self.memo,
-            'confirmed': self.confirmed
-        }
-
-class TransactionEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Transaction):
-            return obj.to_dict()
-        return super().default(obj)
     
 class TransactionPool:
     def __init__(self, max_size):
@@ -155,7 +123,7 @@ class Forger:
             self.storage_engine.store_block(block) # todo: change to, keep the block header in memory until 2/3 validators sign and drop if consensus fail?
             self.storage_engine.store_state({block.header.state_root: new_state})
 
-            logging.info(f"Block forged and stored: {block_header.block_hash} at height {block_header.height}")
+            logging.info("Block forged and stored: %s at height %s", block_header.block_hash, block_header.height)
 
         logging.info("Block forging failed")
 
@@ -170,14 +138,15 @@ class StorageEngine:
         self.state = None
 
     # todo: implement the genesis block logic along the DBs initialization, in seperate genesis.py
+
     def open_databases(self):
         try:
             self.db_headers = plyvel.DB('headers.db', create_if_missing=True)
             self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
             self.db_transactions = plyvel.DB('transactions.db', create_if_missing=True)
             self.db_states = plyvel.DB('state.db', create_if_missing=True)
-        except Exception as e:
-            logging.error(f"Failed to open databases: {e}")
+        except Exception as err:
+            logging.error("Failed to open databases: %s", err)
             raise  # Re-raise the exception
             
     def close_databases(self):
@@ -190,8 +159,8 @@ class StorageEngine:
                 self.db_transactions.close()
             if self.db_states:
                 self.db_states.close()
-        except Exception as e:
-            logging.error(f"Failed to close databases: {e}")
+        except Exception as err:
+            logging.error("Failed to close databases: %s", err)
             raise  # Re-raise the exception
 
     def store_block(self, block):
@@ -216,9 +185,9 @@ class StorageEngine:
 
             self.db_blocks.put(block.header.height.encode(), json.dumps(block_data).encode())
 
-            logging.info(f"Stored block: {block.header.block_hash} at height {block.header.height}")
-        except Exception as e:
-            logging.error(f"Failed to store block: {e}")
+            logging.info("Stored block: %s at height %s", block.header.block_hash, block.header.height)
+        except Exception as err:
+            logging.error("Failed to store block: %s", err)
 
     def store_transaction(self, transaction): # todo: rename to store_transaction_batch
         try:
@@ -233,9 +202,9 @@ class StorageEngine:
                 "memo": transaction.memo
             }
             self.db_transactions.put(transaction.transaction_hash.encode(), json.dumps(transaction_data))
-            logging.info(f"Stored transaction: {transaction.transaction_hash}")
-        except Exception as e:
-            logging.error(f"Failed to store transaction: {e}")
+            logging.info("Stored transaction: %s", transaction.transaction_hash)
+        except Exception as err:
+            logging.error("Failed to store transaction: %s", err)
 
     def store_state(self, state_root, state):
         self.state.append({state_root: state})
@@ -290,9 +259,9 @@ class StorageEngine:
     def store_contract_state(self, contract_address, state_data):
         try:
             self.db_states.put(contract_address.encode(), json.dumps(state_data).encode())
-            logging.info(f"Stored contract state for address: {contract_address}")
-        except Exception as e:
-            logging.error(f"Failed to store contract state: {e}")
+            logging.info("Stored contract state for address: %s", contract_address)
+        except Exception as err:
+            logging.error("Failed to store contract state: %s", err)
 
     def fetch_contract_state(self, contract_address):
         state_data = self.db_states.get(contract_address.encode())
