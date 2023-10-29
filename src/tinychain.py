@@ -79,14 +79,16 @@ class Forger:
 
         transactions_to_forge = []
 
-        if replay is False:
-            transactions_to_forge = self.transactionpool.get_transactions()
-        else:
+        if replay is True:
+            # note: this assumes transactionpool is shared across nodes
             # todo: check if all the block_header.transactions exist in transactionpool, and call the request_transaction() for the missing transactions
-            if all(t in self.transactionpool.transactions.values() for t in transactions_to_forge):
-                transactions_to_forge = block_header.transactions
+            #if all(t in self.transactionpool.transactions.values() for t in transactions_to_forge):
+            #    transactions_to_forge = block_header.transactions
+            transactions_to_forge = block_header.transactions
+        else:
+            transactions_to_forge = self.transactionpool.get_transactions()
 
-        valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]  # todo: check if transaction.nonce = previous nonce + 1
+        valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]  # todo: check if transaction.nonce = previous nonce + 1. update! a new nonce calculation maybe needed
 
         # Get the previous block for validation
         previous_block_header = self.storage_engine.fetch_last_block_header()
@@ -103,7 +105,8 @@ class Forger:
             # generate block hash
             block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
             # sign the block
-            signature = [self.wallet.sign_message(block_hash)]
+            signature = self.wallet.sign_message(block_hash)
+            signatures = [{self.validator, signature}]
 
             block_header = BlockHeader(
                 block_hash,
@@ -112,20 +115,54 @@ class Forger:
                 previous_block_hash,
                 state_root,
                 self.validator,
-                signature,
+                signatures,
                 transaction_hashes
             )
+        else:
+            # execute transactions
+            state_root, new_state = self.tvm_engine.exec(block_header.transactions, self.validator)
+            # check if state_root matches
+            if state_root == block_header.state_root:
+                # check if merkle_root matches
+                # todo: check the merkle root first (cheaper)
+                transaction_hashes = [t.to_dict()['transaction_hash'] for t in block_header.transactions]
+                computed_merkle_root = self.compute_merkle_root(transaction_hashes)
+                if computed_merkle_root == block_header.merkle_root:
+                    signature = self.wallet.sign_message(block_hash)
+                    signatures = block_header.signatures
+                    logging.info("Block signatures: %s", signatures)
+
+                    block_header = BlockHeader(
+                        block_hash,
+                        height,
+                        timestamp,
+                        previous_block_hash,
+                        state_root,
+                        self.validator,
+                        signatures.append({self.validator, signature}),
+                        transaction_hashes
+                    )
+                    logging.info("Replay successful for block %s", block_header.block_hash)
+                else:
+                    logging.error("Replay failed for block %s (Merkle root mismatch)", block_header.block_hash)
+                    return False
+            else:
+                logging.error("Replay failed for block %s (State root mismatch)", block_header.block_hash)
+                return False
+        
         # todo: validate block_header?
 
         block = Block(block_header, valid_transactions_to_forge)
 
         if self.validation_engine.validate_block(block, previous_block_header):
-            self.storage_engine.store_block(block) # todo: change to, keep the block header in memory until 2/3 validators sign and drop if consensus fail?
-            self.storage_engine.store_state({block.header.state_root: new_state})
+            #self.storage_engine.store_block(block) # todo: change to, keep the block header in memory until 2/3 validators sign. elif consensus fail, drop?
+            #self.storage_engine.store_state({block.header.state_root: new_state})
+            return block, new_state
 
-            logging.info("Block forged and stored: %s at height %s", block_header.block_hash, block_header.height)
+            #logging.info("Block forged and stored: %s at height %s", block_header.block_hash, block_header.height)
 
         logging.info("Block forging failed")
+        return False
 
 class StorageEngine:
     def __init__(self, transactionpool):
@@ -138,6 +175,17 @@ class StorageEngine:
         self.state = None
 
     # todo: implement the genesis block logic along the DBs initialization, in seperate genesis.py
+    # if the dbs are not initialized, the program should exist and inform the user to first run the genesis.py to initialize the databases
+    # every time the program starts, it should first try to connect to peers and sync the blockchain. only then, the node can participate (or request to participate) in consensus/block production
+    # reminder: the node won't be allowed to participate in consensus if it's stake is 0
+
+    # ABOVE NOTES PROBABLY DEPRECATED!
+
+    # Genesis Procedure:
+    # if databases are empty: seed the transactionpool with the genesis block transactions: ("genesis", genesis_addresses[n], amount: 500, transfer), and (genesis_addresses[n], staking_contract_address, amount: 500, stake)
+    # then call forge_new_block (is_genesis=True) to forge the genesis block
+    
+    # todo: implement the block_header storage logic and figure the key is height or block_hash
 
     def open_databases(self):
         try:
@@ -147,7 +195,7 @@ class StorageEngine:
             self.db_states = plyvel.DB('state.db', create_if_missing=True)
         except Exception as err:
             logging.error("Failed to open databases: %s", err)
-            raise  # Re-raise the exception
+            raise
             
     def close_databases(self):
         try:
@@ -161,7 +209,7 @@ class StorageEngine:
                 self.db_states.close()
         except Exception as err:
             logging.error("Failed to close databases: %s", err)
-            raise  # Re-raise the exception
+            raise
 
     def store_block(self, block):
         try:
@@ -283,6 +331,14 @@ forger = Forger(transactionpool, storage_engine, validation_engine, tvm_engine, 
 
 
 # Api Endpoints
+
+# todo: add the gossip logic
+# identify the node types (validators and non-validators)
+# do validator nodes gossip their signatures to non-validator nodes?
+# add the endpoint responsible for requesting the signature for block "block_header.blockhash" from peer n. if the peer hasnt received the block_header
+# add the endpoint for broadcasting the newly forged block_header to peers
+# add the endpoint for broadcasting the signature for block_header.blockhash
+
 async def send_transaction(request):
     data = await request.json()
     if 'transaction' in data:

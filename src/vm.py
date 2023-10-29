@@ -24,21 +24,7 @@ class TinyVMEngine:
         ### End of System SCs ###
 
     def exec(self, transactions, validator):
-        """
-        if block.height == 0:
-            accounts_contract_state = {}
-            staking_contract_state = {}
-            self.execute_accounts_contract(accounts_contract_state, "genesis", genesis_addresses[0], 10 * tinycoin, "credit")
-            self.execute_accounts_contract(accounts_contract_state, "genesis", genesis_addresses[1], 10 * tinycoin, "credit")
-            self.execute_staking_contract(staking_contract_state, genesis_addresses[0], 1000 * tinycoin, "stake")
-            self.execute_staking_contract(staking_contract_state, genesis_addresses[1], 1000 * tinycoin, "stake")
-            state_root = self.merkle_tree.root_hash().hex()
-            block.state_root = state_root
-            self.store_contract_state(self.accounts_contract_address, accounts_contract_state)
-            self.store_contract_state(self.staking_contract_address, staking_contract_state)
-            print("genesis block state root: " + state_root)
-            return True
-        """
+        
         # Fetch the accounts contract state from cache or storage
         accounts_contract_state = self.get_contract_state(
             self.accounts_contract_address
@@ -88,6 +74,7 @@ class TinyVMEngine:
     ):
         if contract_state is None:
             contract_state = {}
+            contract_state[sender] = 1000*tinycoin # the "genesis" account balance to be exhausted within genesis
         if operation == "credit":
             current_balance = contract_state.get(sender, 0)
             new_balance = current_balance + amount
