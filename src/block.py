@@ -7,6 +7,7 @@ block_header_schema = {
         'height': {'type': 'number'},
         'timestamp': {'type': 'number'},
         'previous_block_hash': {'type': 'string'},
+        'merkle_root': {'type': 'string'},
         'state_root': {'type': 'string'},
         'validator': {'type': 'string'},
         'signatures': {'type': 'array', 'items': {'type': 'string'}},
@@ -16,11 +17,12 @@ block_header_schema = {
 }
 
 class BlockHeader:
-    def __init__(self, block_hash, height, timestamp, previous_block_hash, state_root, validator, signatures, transaction_hashes):
+    def __init__(self, block_hash, height, timestamp, previous_block_hash, merkle_root, state_root, validator, signatures, transaction_hashes):
         self.block_hash = block_hash
         self.height = height
         self.timestamp = timestamp
         self.previous_block_hash = previous_block_hash
+        self.merkle_root = merkle_root
         self.state_root = state_root
         self.validator = validator
         self.signatures = signatures
@@ -33,6 +35,7 @@ class BlockHeader:
             header_data['height'],
             header_data['timestamp'],
             header_data['previous_block_hash'],
+            header_data['merkle_root'],
             header_data['state_root'],
             header_data['validator'],
             header_data['signatures'],

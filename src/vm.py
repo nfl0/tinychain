@@ -74,7 +74,7 @@ class TinyVMEngine:
     ):
         if contract_state is None:
             contract_state = {}
-            contract_state[sender] = 1000*tinycoin # the "genesis" account balance to be exhausted within genesis
+            contract_state[sender] = 2002*tinycoin # the "genesis" account balance to be exhausted within genesis
         if operation == "credit":
             current_balance = contract_state.get(sender, 0)
             new_balance = current_balance + amount
@@ -85,6 +85,8 @@ class TinyVMEngine:
             if sender_balance >= amount:
                 contract_state[sender] = sender_balance - amount
                 contract_state[receiver] = receiver_balance + amount
+                # show logging.info that says the sender send the amount to the receiver
+                logging.info(f"{receiver} received {amount} from {sender}")
             else:
                 logging.info(f"Insufficient balance for sender: {sender}")
 
