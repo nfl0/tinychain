@@ -1,5 +1,5 @@
 .aider*
 __pycache__
 blocks.db
-state.db
+states.db
 settings.json

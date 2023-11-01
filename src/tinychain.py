@@ -244,7 +244,6 @@ class StorageEngine:
         self.db_blocks = None
         self.db_transactions = None
         self.db_states = None
-        #self.open_databases()
         self.state = []
 
     # todo: implement the genesis block logic along the DBs initialization, in seperate genesis.py
@@ -266,7 +265,7 @@ class StorageEngine:
             self.db_headers = plyvel.DB('headers.db', create_if_missing=True)
             self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
             self.db_transactions = plyvel.DB('transactions.db', create_if_missing=True)
-            self.db_states = plyvel.DB('state.db', create_if_missing=True)
+            self.db_states = plyvel.DB('states.db', create_if_missing=True)
             # if the headers database is empty, call genesis_procedure()
             headers = self.db_headers.iterator()
             if not any(headers):
@@ -357,8 +356,11 @@ class StorageEngine:
             logging.error("Failed to store transaction: %s", err)
 
     def store_state(self, state_root, state):
-        self.state.append({state_root: state})
-        logging.info("State saved: %s", state_root) # saved for when voting period ends and > 2/3 validators have signed
+        try:
+            self.db_states.put(state_root.encode(), json.dumps(state).encode())
+            logging.info("State saved: %s", state_root) # saved for when voting period ends and > 2/3 validators have signed
+        except Exception as err:
+            logging.error("Failed to store state: %s", err)        
 
     def fetch_balance(self, account_address):
         accounts_state = self.fetch_contract_state("6163636f756e7473")
