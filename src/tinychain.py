@@ -65,8 +65,14 @@ class Forger:
         while len(transaction_hashes) > 1:
             if len(transaction_hashes) % 2 != 0:
                 transaction_hashes.append(transaction_hashes[-1])
-            transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
 
+            if isinstance(transaction_hashes[0], bytes):
+                transaction_hashes = [blake3.blake3(transaction_hashes[i] + transaction_hashes[i + 1]).digest() for i in range(0, len(transaction_hashes), 2)]
+            elif isinstance(transaction_hashes[0], str):
+                transaction_hashes = [blake3.blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
+            else:
+                raise TypeError("Unsupported data type in transaction_hashes")
+            
         if isinstance(transaction_hashes[0], str):
             # If it's a string, encode it as bytes using UTF-8
             transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
@@ -120,11 +126,19 @@ class Forger:
                 signature = self.wallet.sign_message(block_hash)
                 signatures = [{self.validator, signature}]
             else:
+
+                ### GENESIS BLOCK CASE ###
+
                 timestamp = int(19191919)
+                # print all the transactions_to_forge array
+                print(transactions_to_forge[0].to_dict())
+                print(transactions_to_forge[1].to_dict())
+                print(transactions_to_forge[2].to_dict())
+                print(transactions_to_forge[3].to_dict()) # todo: revise the transaction validation logic
                 # generate state root
                 state_root, new_state= self.tvm_engine.exec(transactions_to_forge, "genesis")
                 # generate merkle root
-                transaction_hashes = [t.to_dict()['transaction_hash'] for t in valid_transactions_to_forge]
+                transaction_hashes = [t.to_dict()['transaction_hash'] for t in transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
                 # generate block hash
                 previous_block_hash = "00000000"
@@ -146,7 +160,6 @@ class Forger:
                 signatures.append({self.validator, signature}),
                 transaction_hashes
             )
-            logging.info(block_header.transaction_hashes)
         else:
             # execute transactions
             state_root, new_state = self.tvm_engine.exec(valid_transactions_to_forge, block_header.validator)
@@ -181,8 +194,10 @@ class Forger:
                 return False
         
         # todo: validate block_header?
-
-        block = Block(block_header, valid_transactions_to_forge)
+        if is_genesis is False:
+            block = Block(block_header, valid_transactions_to_forge)
+        else:
+            block = Block(block_header, transactions_to_forge)
 
         if is_genesis is False:
             if self.validation_engine.validate_block(block, previous_block_header):
@@ -191,9 +206,10 @@ class Forger:
                 #self.storage_engine.store_state({block.header.state_root: new_state})
                 return block, new_state
         else:
-            self.storage_engine.store_block(block) # todo: change to, keep the block header in memory until 2/3 validators sign. elif consensus fail, drop?
+            self.storage_engine.store_block(block)
             self.storage_engine.store_block_header(block_header)
-            self.storage_engine.store_state({block.header.state_root: new_state})
+            self.storage_engine.store_state(block.header.state_root, new_state)
+            return True
 
             #logging.info("Block forged and stored: %s at height %s", block_header.block_hash, block_header.height)
 
@@ -229,7 +245,7 @@ class StorageEngine:
         self.db_transactions = None
         self.db_states = None
         #self.open_databases()
-        self.state = None
+        self.state = []
 
     # todo: implement the genesis block logic along the DBs initialization, in seperate genesis.py
     # if the dbs are not initialized, the program should exist and inform the user to first run the genesis.py to initialize the databases
@@ -291,12 +307,12 @@ class StorageEngine:
             }
 
             for transaction in block.transactions:
-                transaction.confirmed = block.height
+                transaction.confirmed = block.header.height
                 self.store_transaction(transaction)
                 self.transactionpool.remove_transaction(transaction)
                 self.set_nonce_for_account(transaction.sender, transaction.nonce + 1)
 
-            self.db_blocks.put(block.header.height.encode(), json.dumps(block_data).encode())
+            self.db_blocks.put(block.header.block_hash.encode(), json.dumps(block_data).encode())
 
             logging.info("Stored block: %s at height %s", block.header.block_hash, block.header.height)
         except Exception as err:
@@ -316,13 +332,13 @@ class StorageEngine:
                 'transaction_hashes': block_header.transaction_hashes # reviset this line
             }
 
-            self.db_headers.put(block_header.height.encode(), json.dumps(block_header_data).encode())
+            self.db_headers.put(str(block_header.height).encode(), json.dumps(block_header_data).encode())
 
             logging.info("Stored block header: %s at height %s", block_header.block_hash, block_header.height)
         except Exception as err:
             logging.error("Failed to store block header: %s", err)
 
-    def store_transaction(self, transaction): # todo: rename to store_transaction_batch
+    def store_transaction(self, transaction):
         try:
             transaction_data = {
                 'transaction_hash': transaction.transaction_hash,
@@ -332,9 +348,10 @@ class StorageEngine:
                 "fee": transaction.fee,
                 "nonce": transaction.nonce,
                 "signature": transaction.signature,
-                "memo": transaction.memo
+                "memo": transaction.memo,
+                "confirmed": transaction.confirmed
             }
-            self.db_transactions.put(transaction.transaction_hash.encode(), json.dumps(transaction_data))
+            self.db_transactions.put(transaction.transaction_hash.encode(), json.dumps(transaction_data).encode('utf-8'))
             logging.info("Stored transaction: %s", transaction.transaction_hash)
         except Exception as err:
             logging.error("Failed to store transaction: %s", err)

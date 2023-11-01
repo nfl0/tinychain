@@ -59,7 +59,7 @@ class TinyVMEngine:
                         staking_contract_state, sender, amount, is_stake
                     )
                 else:
-                    logging.info("Invalid memo. Try 'stake' or 'unstake'")
+                    logging.info("TinyVM: (main): Invalid memo. Try 'stake' or 'unstake'")
 
         # Calculate the Merkle root
         state = {
@@ -86,9 +86,9 @@ class TinyVMEngine:
                 contract_state[sender] = sender_balance - amount
                 contract_state[receiver] = receiver_balance + amount
                 # show logging.info that says the sender send the amount to the receiver
-                logging.info(f"{receiver} received {amount} from {sender}")
+                logging.info(f"TinyVM: (accounts contract): {receiver} received {amount} from {sender}")
             else:
-                logging.info(f"Insufficient balance for sender: {sender}")
+                logging.info(f"TinyVM: (accounts contract): Insufficient balance for sender: {sender}")
 
         # Update contract state in cache
         self.contract_state_cache[self.accounts_contract_address] = contract_state
@@ -102,7 +102,7 @@ class TinyVMEngine:
             new_staked_balance = staked_balance + amount
             contract_state[sender] = new_staked_balance
             logging.info(
-                f"{sender} staked {amount} tinycoins for contract {self.staking_contract_address}. New staked balance: {new_staked_balance}"
+                f"TinyVM (staking contract): {sender} staked {amount} tinycoins for contract {self.staking_contract_address}. New staked balance: {new_staked_balance}"
             )
         else:
             if staked_balance > 0:
@@ -117,11 +117,11 @@ class TinyVMEngine:
                 )
 
                 logging.info(
-                    f"{sender} unstaked {released_balance} tinycoins for contract {self.staking_contract_address}. Staked balance reset to zero."
+                    f"TinyVM (staking contract): {sender} unstaked {released_balance} tinycoins for contract {self.staking_contract_address}. Staked balance reset to zero."
                 )
             else:
                 logging.info(
-                    f"{sender} has no staked tinycoins for contract {self.staking_contract_address} to unstake."
+                    f"TinyVM (staking contract): {sender} has no staked tinycoins for contract {self.staking_contract_address} to unstake."
                 )
 
         # Update contract state in cache
