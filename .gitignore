@@ -1,5 +1,7 @@
 .aider*
 __pycache__
 blocks.db
+headers.db
+transactions.db
 states.db
 settings.json

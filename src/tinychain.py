@@ -34,7 +34,7 @@ class TransactionPool:
     def remove_transaction(self, transaction):
         self.transactions.pop(transaction.transaction_hash, None)
     def get_transactions(self):
-        return sorted(list(self.transactions.values()), key=lambda tx: tx.fee, reverse=True)
+        return sorted(self.transactions.values(), key=lambda tx: tx.fee, reverse=True)
     def get_transaction_by_hash(self, hash):
         return self.transactions[hash]
     def is_empty(self):
@@ -42,11 +42,11 @@ class TransactionPool:
 
 
 class Forger:
-    def __init__(self, transactionpool, storage_engine, validation_engine, tvm_engine, wallet):
+    def __init__(self, transactionpool, storage_engine, validation_engine, wallet):
         self.transactionpool = transactionpool
         self.storage_engine = storage_engine
         self.validation_engine = validation_engine
-        self.tvm_engine = tvm_engine
+
         self.wallet = wallet
         self.validator = self.wallet.get_address()
         self.production_enabled = True
@@ -87,8 +87,7 @@ class Forger:
             return "Forging is disabled"
 
         transactions_to_forge = []
-        if is_genesis is True:
-            transactions_to_forge = self.transactionpool.get_transactions()
+
         if replay is True:
             for transaction_hash in block_header.transaction_hashes:
                 # Get the transaction from the transaction pool by its hash
@@ -109,14 +108,18 @@ class Forger:
             previous_block_header = self.storage_engine.fetch_last_block_header()
             previous_block_hash = previous_block_header.block_hash
             height = previous_block_header.height + 1
+            current_state = self.storage_engine.fetch_state(previous_block_header.state_root)
         else:
             height = 0
+            current_state = {}
+        
+        tvm_engine = TinyVMEngine(current_state)
 
         if replay is False:
             if is_genesis is False:
                 timestamp = int(time.time())
                 # generate state root
-                state_root, new_state= self.tvm_engine.exec(valid_transactions_to_forge, self.validator)
+                state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, self.validator)
                 # generate merkle root
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in valid_transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
@@ -126,17 +129,10 @@ class Forger:
                 signature = self.wallet.sign_message(block_hash)
                 signatures = [{self.validator, signature}]
             else:
-
                 ### GENESIS BLOCK CASE ###
-
                 timestamp = int(19191919)
-                # print all the transactions_to_forge array
-                print(transactions_to_forge[0].to_dict())
-                print(transactions_to_forge[1].to_dict())
-                print(transactions_to_forge[2].to_dict())
-                print(transactions_to_forge[3].to_dict()) # todo: revise the transaction validation logic
                 # generate state root
-                state_root, new_state= self.tvm_engine.exec(transactions_to_forge, "genesis")
+                state_root, new_state = tvm_engine.exec(transactions_to_forge, "genesis")
                 # generate merkle root
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
@@ -162,7 +158,7 @@ class Forger:
             )
         else:
             # execute transactions
-            state_root, new_state = self.tvm_engine.exec(valid_transactions_to_forge, block_header.validator)
+            state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, block_header.validator)
             # check if state_root matches
             if state_root == block_header.state_root:
                 # check if merkle_root matches
@@ -224,10 +220,10 @@ def genesis_procedure():
     staking_contract_address = "7374616b696e67"  # the word 'staking' in hex
     # genesis transactions
     genesis_transactions = [
-        Transaction("genesis", genesis_addresses[0], 1000*TINYCOIN, 1, 0, "consensus", ""),
-        Transaction(genesis_addresses[0], staking_contract_address, 500*TINYCOIN, 2, 0, "genesis_signature_0", "stake"),
-        Transaction("genesis", genesis_addresses[1], 1000*TINYCOIN, 3, 1, "consensus", ""),
-        Transaction(genesis_addresses[1], staking_contract_address, 500*TINYCOIN, 4, 0, "genesis_signature_1", "stake")
+        Transaction("genesis", genesis_addresses[0], 1000*TINYCOIN, 40, 0, "consensus", ""),
+        Transaction(genesis_addresses[0], staking_contract_address, 500*TINYCOIN, 30, 0, "genesis_signature_0", "stake"),
+        Transaction("genesis", genesis_addresses[1], 1000*TINYCOIN, 20, 1, "consensus", ""),
+        Transaction(genesis_addresses[1], staking_contract_address, 500*TINYCOIN, 10, 0, "genesis_signature_1", "stake")
     ]
     # loop through the genesis transactions and add to transaction pool
     for transaction in genesis_transactions:
@@ -235,7 +231,6 @@ def genesis_procedure():
     
     # call the forge_new_block method
     forger.forge_new_block(False, None, True)
-    
     
 class StorageEngine:
     def __init__(self, transactionpool):
@@ -293,6 +288,12 @@ class StorageEngine:
 
     def store_block(self, block):
         try:
+            for transaction in block.transactions:
+                transaction.confirmed = block.header.height
+                self.store_transaction(transaction)
+                self.transactionpool.remove_transaction(transaction)
+                self.set_nonce_for_account(transaction.sender, transaction.nonce + 1)
+
             block_data = {
                 'block_hash': block.header.block_hash,
                 'height': block.header.height,
@@ -304,12 +305,6 @@ class StorageEngine:
                 'signatures': block.header.signatures,
                 'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
-
-            for transaction in block.transactions:
-                transaction.confirmed = block.header.height
-                self.store_transaction(transaction)
-                self.transactionpool.remove_transaction(transaction)
-                self.set_nonce_for_account(transaction.sender, transaction.nonce + 1)
 
             self.db_blocks.put(block.header.block_hash.encode(), json.dumps(block_data).encode())
 
@@ -434,8 +429,7 @@ wallet = Wallet()
 transactionpool = TransactionPool(max_size=MAX_TX_POOL)
 storage_engine = StorageEngine(transactionpool)
 validation_engine = ValidationEngine(storage_engine)
-tvm_engine = TinyVMEngine(storage_engine)
-forger = Forger(transactionpool, storage_engine, validation_engine, tvm_engine, wallet)
+forger = Forger(transactionpool, storage_engine, validation_engine, wallet)
 
 
 # Api Endpoints
