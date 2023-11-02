@@ -201,13 +201,19 @@ class Forger:
 
         # consensus and block propagation rules:
         #
+        # Requirementns:
+        # - Validator stake is be above the 500 tinycoins minimum threshold
+        #
         # Consensus:
+        #   Round robin mechanism: Validators are selected in a predetermined order, cycling through the list of validators sequentially for each new block production round.
         #   The network requires a minimum of 5 validators to achieve consensus with a two-thirds majority, as 3 nodes alone cannot form a colliding majority.
         #   If the number of validators falls below 5, the network remains operational but is unable to add new blocks securely and achieve consensus.
+        #
         # Participants:
         #   (A): block producer
         #   (B): network validator
-        # Interactions:
+        #
+        #  Interactions:
         #   Server;
         #       (A) is chosen to produce the new block
         #       (A) gathers trasactions from the transaction pool
