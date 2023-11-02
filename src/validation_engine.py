@@ -137,7 +137,3 @@ class ValidationEngine:
                 return False
 
         return True
-    
-
-
-# validate(sample_block_data['header'], block_header_schema)

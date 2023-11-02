@@ -65,13 +65,13 @@ class TinyVMEngine:
         }
         # Calculate the Merkle root
         state_root = self.merkle_tree.root_hash().hex()
-        
+
         return state_root, state
 
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
-            contract_state = {sender: 2000*tinycoin}  # "genesis" account balance to be exhausted within genesis
+            contract_state = {sender: 2000*tinycoin}  # the "genesis" account balance to be exhausted within genesis
 
         if operation == "credit":
             current_balance = contract_state.get(sender, 0)

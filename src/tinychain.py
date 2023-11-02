@@ -49,6 +49,8 @@ class Forger:
 
         self.wallet = wallet
         self.validator = self.wallet.get_address()
+        self.sign = self.wallet.sign_message
+
         self.production_enabled = True
 
     @staticmethod
@@ -117,6 +119,9 @@ class Forger:
 
         if replay is False:
             if is_genesis is False:
+                # set validator address
+                self.validator = self.wallet.get_address()
+                # generate timestamp
                 timestamp = int(time.time())
                 # generate state root
                 state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, self.validator)
@@ -126,13 +131,14 @@ class Forger:
                 # generate block hash
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # sign the block
-                signature = self.wallet.sign_message(block_hash)
-                signatures = [{self.validator, signature}]
+                signature = self.sign(block_hash)
+                signatures = [{"validator_address": self.validator, "signature": signature}]
             else:
                 ### GENESIS BLOCK CASE ###
+                self.validator = "genesis"
                 timestamp = int(19191919)
                 # generate state root
-                state_root, new_state = tvm_engine.exec(transactions_to_forge, "genesis")
+                state_root, new_state = tvm_engine.exec(transactions_to_forge, self.validator)
                 # generate merkle root
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
@@ -140,10 +146,8 @@ class Forger:
                 previous_block_hash = "00000000"
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # genesis signature
-                signatures = []
                 signature = "genesis_signature"
-
-                self.validator = "genesis"
+                signatures = [{"validator_address": self.validator, "signature": signature}]
 
             block_header = BlockHeader(
                 block_hash,
@@ -153,7 +157,7 @@ class Forger:
                 merkle_root,
                 state_root,
                 self.validator,
-                signatures.append({self.validator, signature}),
+                signatures,
                 transaction_hashes
             )
         else:
@@ -195,22 +199,46 @@ class Forger:
         else:
             block = Block(block_header, transactions_to_forge)
 
+        # consensus and block propagation rules:
+        #
+        # Consensus:
+        #   The network requires a minimum of 5 validators to achieve consensus with a two-thirds majority, as 3 nodes alone cannot form a colliding majority.
+        #   If the number of validators falls below 5, the network remains operational but is unable to add new blocks securely and achieve consensus.
+        # Participants:
+        #   (A): block producer
+        #   (B): network validator
+        # Interactions:
+        #   Server;
+        #       (A) is chosen to produce the new block
+        #       (A) gathers trasactions from the transaction pool
+        #       (A) produces the block_header
+        #       (A) broadcasts the block_header to all the network validators and expects (B) to return the reply, either the signature object {validator_pub_key: {"signature":validator_signature}} or error object {validator_pub_key: {"message": "error|retired"}}
+        #       the timeout period ends (8 seconds):
+        #           case 1: (A) have collected +2/3 signatures
+        #           case 2: (A) didnt collect enough signatures
+        #       if (A) doesnt receive (+2/3) the signature object from (B) within timeout, (A) drops the block 
+        #
+        #   Client:
+        #       (A) broadcasts the block header to all the (B)
+        #       (B) replays the block header w/ the included transactions. 
+        #       if the block is valid, (B) signs the block_hash and sends the signature along the block hash to the block producer
+
         if is_genesis is False:
-            if self.validation_engine.validate_block(block, previous_block_header):
+            #if self.validation_engine.validate_block_header(block, previous_block_header):
+            if True:
                 #self.storage_engine.store_block(block) # todo: change to, keep the block header in memory until 2/3 validators sign. elif consensus fail, drop?
                 #self.storage_engine.store_block_header(block_header)
                 #self.storage_engine.store_state({block.header.state_root: new_state})
-                return block, new_state
+                #return block, new_state
+                self.storage_engine.store_block(block)
+                self.storage_engine.store_block_header(block_header)
+                self.storage_engine.store_state(block.header.state_root, new_state)
+                return True
         else:
             self.storage_engine.store_block(block)
             self.storage_engine.store_block_header(block_header)
             self.storage_engine.store_state(block.header.state_root, new_state)
             return True
-
-            #logging.info("Block forged and stored: %s at height %s", block_header.block_hash, block_header.height)
-
-        logging.info("Block forging failed")
-        return False
 
 def genesis_procedure():
     genesis_addresses = [
@@ -231,6 +259,8 @@ def genesis_procedure():
     
     # call the forge_new_block method
     forger.forge_new_block(False, None, True)
+    time.sleep(2)
+    forger.forge_new_block(False, None, False)
     
 class StorageEngine:
     def __init__(self, transactionpool):
