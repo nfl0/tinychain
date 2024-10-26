@@ -14,12 +14,19 @@ def generate_keypair(filename):
         pickle.dump(private_key, file)
     return private_key, public_key
 
+def get_nonce(address):
+    response = requests.get(f'{API_URL}/get_nonce/{address.hex()}')
+    return response.json().get('nonce', 0)
+
 def create_transaction(sender, receiver, amount, memo, sender_key):
+    nonce = get_nonce(sender)
     transaction = {
         'sender': sender.hex(),
         'receiver': receiver.hex(),
         'amount': amount,
+        'fee': 1,  # Set a default fee
         'memo': memo,
+        'nonce': nonce
     }
     message = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}-{transaction['memo']}"
     signature = sender_key.sign(message.encode()).hex()

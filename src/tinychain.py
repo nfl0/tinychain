@@ -55,7 +55,7 @@ class Forger:
 
     @staticmethod
     def generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash):
-        values = [merkle_root, str(timestamp), str(state_root), previous_block_hash]
+        values = [merkle_root, str(timestamp), str(state_root), str(previous_block_hash)]
         concatenated_string = f"{''.join(values)}".encode()
         return blake3.blake3(concatenated_string).hexdigest()
 
@@ -510,10 +510,16 @@ async def toggle_production(request):
     production_status = "enabled" if forger.production_enabled else "disabled"
     return web.json_response({'message': f'Block production {production_status}'})
 
+async def get_nonce(request):
+    account_address = request.match_info['account_address']
+    nonce = storage_engine.get_nonce_for_account(account_address)
+    return web.json_response({'nonce': nonce})
+
 app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
+app.router.add_get('/get_nonce/{account_address}', get_nonce)
 
 async def cleanup(app):
     await asyncio.gather(*[t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
