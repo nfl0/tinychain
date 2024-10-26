@@ -5,3 +5,4 @@ headers.db
 transactions.db
 states.db
 settings.json
+.venv
