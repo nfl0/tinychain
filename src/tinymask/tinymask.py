@@ -6,6 +6,7 @@ import time
 
 API_URL = 'http://127.0.0.1:5000'  # Update to the correct API URL
 WALLET_PATH = './wallets/'
+TRANSACTION_FEE = 10  # Hardcoded transaction fee
 
 def generate_keypair(filename):
     private_key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
@@ -14,17 +15,17 @@ def generate_keypair(filename):
         pickle.dump(private_key, file)
     return private_key, public_key
 
-def create_transaction(sender, receiver, amount, memo, sender_key):
+def create_transaction(sender, receiver, amount, memo, sender_key, nonce):
     transaction = {
         'sender': sender.hex(),
         'receiver': receiver.hex(),
         'amount': amount,
         'memo': memo,
+        'fee': TRANSACTION_FEE,
+        'nonce': nonce
     }
-    message = f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}-{transaction['memo']}"
-    signature = sender_key.sign(message.encode()).hex()
+    signature = sender_key.sign(f"{transaction['sender']}-{transaction['receiver']}-{transaction['amount']}-{transaction['memo']}-{transaction['fee']}-{transaction['nonce']}".encode()).hex()
     transaction['signature'] = signature
-    transaction['message'] = message
     return transaction
 
 def send_transaction(transaction):
@@ -37,6 +38,10 @@ def send_transaction(transaction):
 def get_balance(address):
     response = requests.get(f'{API_URL}/get_balance/{address.hex()}')
     return response.json()
+
+def get_nonce(address):
+    response = requests.get(f'{API_URL}/get_nonce/{address.hex()}')
+    return response.json().get('nonce', 0)
 
 def print_wallet_menu():
     print("Select an option:")
@@ -79,6 +84,8 @@ if __name__ == '__main__':
                 public_key = private_key.get_verifying_key()
                 sender_address = public_key.to_string()
 
+            nonce = get_nonce(sender_address)
+
             if option == 2:
                 print("Select receiving account:")
                 for idx, wallet_file in enumerate(wallet_files):
@@ -97,7 +104,7 @@ if __name__ == '__main__':
                 amount = int(input("Enter amount to send:"))
                 memo = ""
 
-                transaction = create_transaction(sender_address, receiver_address, amount, memo, private_key)
+                transaction = create_transaction(sender_address, receiver_address, amount, memo, private_key, nonce)
                 print("Created Transaction:", transaction)
 
                 response = send_transaction(transaction)
@@ -109,12 +116,10 @@ if __name__ == '__main__':
 
                 custom_address = bytes.fromhex(''.join(hex_chunks))
 
-
                 amount = int(input("Enter amount to send:"))
-                #memo = "send to custom"
                 memo = "stake"
 
-                transaction = create_transaction(sender_address, custom_address, amount, memo, private_key)
+                transaction = create_transaction(sender_address, custom_address, amount, memo, private_key, nonce)
                 print("Created Transaction:", transaction)
 
                 response = send_transaction(transaction)
@@ -140,6 +145,8 @@ if __name__ == '__main__':
                 public_key = private_key.get_verifying_key()
                 sender_address = public_key.to_string()
 
+            nonce = get_nonce(sender_address)
+
             for _ in range(2):  # Send two preset transactions
                 transactions = [
                     {
@@ -154,7 +161,7 @@ if __name__ == '__main__':
                     receiver_address = bytes.fromhex(transaction['receiver'])
                     memo = transaction['memo']
                     amount = transaction['amount']
-                    formatted_transaction = create_transaction(sender_address, receiver_address, amount, memo, private_key)
+                    formatted_transaction = create_transaction(sender_address, receiver_address, amount, memo, private_key, nonce)
                     
                     response = send_transaction(formatted_transaction)
                     print("Transaction Response:", response)
@@ -168,13 +175,3 @@ if __name__ == '__main__':
 
         else:
             print("Invalid option. Please select a valid option.")
-
-        # Periodically fetch account balance every 6 seconds
-        #balance_fetch_interval = 6  # seconds
-        #start_time = time.time()
-        #while time.time() - start_time < balance_fetch_interval:
-        #    sender_balance = get_balance(sender_address)
-        #    print(f"Sender Balance: {sender_balance.get('balance', 'N/A')}")
-
-            # Wait for a short interval before fetching balance again
-        #    time.sleep(1)
