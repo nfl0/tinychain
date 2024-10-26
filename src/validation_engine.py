@@ -54,8 +54,9 @@ class ValidationEngine:
         public_key = transaction.sender
         signature = transaction.signature
         vk = VerifyingKey.from_string(bytes.fromhex(public_key), curve=ecdsa.SECP256k1)
+        message = f"{transaction.sender}-{transaction.receiver}-{transaction.amount}-{transaction.memo}-{transaction.fee}-{transaction.nonce}"
         try:
-            vk.verify(bytes.fromhex(signature), transaction.message.encode())
+            vk.verify(bytes.fromhex(signature), message.encode())
             return True
         except ecdsa.BadSignatureError:
             return False
