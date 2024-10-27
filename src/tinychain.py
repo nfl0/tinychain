@@ -53,6 +53,9 @@ class Forger:
 
         self.production_enabled = True
 
+        self.in_memory_blocks = {}  # P7e15
+        self.in_memory_block_headers = {}  # P7e15
+
     @staticmethod
     def generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash):
         values = [merkle_root, str(timestamp), str(state_root), previous_block_hash]
@@ -199,52 +202,37 @@ class Forger:
         else:
             block = Block(block_header, transactions_to_forge)
 
-        # consensus and block propagation rules:
-        #
-        # Requirementns:
-        # - Validator stake is be above the 500 tinycoins minimum threshold
-        #
-        # Consensus:
-        #   Round robin mechanism: Validators are selected in a predetermined order, cycling through the list of validators sequentially for each new block production round.
-        #   The network requires a minimum of 5 validators to achieve consensus with a two-thirds majority, as 3 nodes alone cannot form a colliding majority.
-        #   If the number of validators falls below 5, the network remains operational but is unable to add new blocks securely and achieve consensus.
-        #
-        # Participants:
-        #   (A): block producer
-        #   (B): network validator
-        #
-        #  Interactions:
-        #   Server;
-        #       (A) is chosen to produce the new block
-        #       (A) gathers trasactions from the transaction pool
-        #       (A) produces the block_header
-        #       (A) broadcasts the block_header to all the network validators and expects (B) to return the reply, either the signature object {validator_pub_key: {"signature":validator_signature}} or error object {validator_pub_key: {"message": "error|retired"}}
-        #       the timeout period ends (8 seconds):
-        #           case 1: (A) have collected +2/3 signatures
-        #           case 2: (A) didnt collect enough signatures
-        #       if (A) doesnt receive (+2/3) the signature object from (B) within timeout, (A) drops the block 
-        #
-        #   Client:
-        #       (A) broadcasts the block header to all the (B)
-        #       (B) replays the block header w/ the included transactions. 
-        #       if the block is valid, (B) signs the block_hash and sends the signature along the block hash to the block producer
-
         if is_genesis is False:
-            #if self.validation_engine.validate_block_header(block, previous_block_header):
-            if True:
-                #self.storage_engine.store_block(block) # todo: change to, keep the block header in memory until 2/3 validators sign. elif consensus fail, drop?
-                #self.storage_engine.store_block_header(block_header)
-                #self.storage_engine.store_state({block.header.state_root: new_state})
-                #return block, new_state
+            self.in_memory_blocks[block.header.block_hash] = block  # P9ad7
+            self.in_memory_block_headers[block.header.block_hash] = block_header  # P9ad7
+
+            # Broadcast block header to validators and collect signatures (P02ef)
+            self.broadcast_block_header(block_header)
+
+            # Check if 2/3 validators have signed
+            if self.has_enough_signatures(block_header):
                 self.storage_engine.store_block(block)
                 self.storage_engine.store_block_header(block_header)
                 self.storage_engine.store_state(block.header.state_root, new_state)
                 return True
+            else:
+                # Drop the block if not enough signatures
+                del self.in_memory_blocks[block.header.block_hash]
+                del self.in_memory_block_headers[block.header.block_hash]
+                return False
         else:
             self.storage_engine.store_block(block)
             self.storage_engine.store_block_header(block_header)
             self.storage_engine.store_state(block.header.state_root, new_state)
             return True
+
+    def broadcast_block_header(self, block_header):  # P02ef
+        # Logic to broadcast block header to validators
+        pass
+
+    def has_enough_signatures(self, block_header):  # P66ad
+        # Logic to check if 2/3 validators have signed
+        return True
 
 def genesis_procedure():
     genesis_addresses = [

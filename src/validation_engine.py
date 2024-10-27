@@ -138,3 +138,24 @@ class ValidationEngine:
                 return False
 
         return True
+
+    def validate_collected_signatures(self, block_header, required_signatures):
+        """
+        Validate the collected signatures from validators.
+        
+        Args:
+            block_header (BlockHeader): The block header containing the signatures.
+            required_signatures (int): The number of required signatures for validation.
+        
+        Returns:
+            bool: True if the required number of valid signatures is collected, False otherwise.
+        """
+        valid_signatures = 0
+        for signature in block_header.signatures:
+            validator_address = signature["validator_address"]
+            signature_value = signature["signature"]
+            if Wallet.verify_signature(block_header.block_hash, signature_value, validator_address):
+                valid_signatures += 1
+            if valid_signatures >= required_signatures:
+                return True
+        return False
