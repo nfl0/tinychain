@@ -98,17 +98,17 @@ class TinyVMEngine:
     def execute_staking_contract(self, contract_state, sender, amount, operation, accounts_contract_state):
         if contract_state is None:
             contract_state = {}
-        staked_balance = contract_state.get(sender, 0)
+        staked_balance = contract_state.get(sender, {"balance": 0, "status": "active", "index": len(contract_state)})
         if operation:
-            new_staked_balance = staked_balance + amount
-            contract_state[sender] = new_staked_balance
+            new_staked_balance = staked_balance["balance"] + amount
+            contract_state[sender] = {"balance": new_staked_balance, "status": "active", "index": staked_balance["index"]}
             logging.info(
                 f"TinyVM (staking contract): {sender} staked {amount} tinycoins for contract {self.staking_contract_address}. New staked balance: {new_staked_balance}"
             )
         else:
-            if staked_balance > 0:
-                released_balance = staked_balance
-                contract_state[sender] = 0
+            if staked_balance["balance"] > 0:
+                released_balance = staked_balance["balance"]
+                contract_state[sender] = {"balance": 0, "status": "inactive", "index": staked_balance["index"]}
                 self.execute_accounts_contract(
                     accounts_contract_state,
                     self.staking_contract_address,

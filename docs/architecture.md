@@ -39,6 +39,15 @@ The API provides endpoints for interacting with the TinyChain node. It allows us
    - Validators sign the block and broadcast their signatures to the network.
    - Once a block receives signatures from a majority of validators, it is considered valid and added to the blockchain.
 
+## Staking Contract
+
+The staking contract in TinyChain includes the following fields for each validator:
+
+- **Public Key**: The public key of the validator.
+- **Staked Balance**: The amount of tokens staked by the validator.
+- **Status**: The status of the validator (e.g., active, inactive).
+- **Index**: The index value of the validator, which is determined by the order in which they joined the validator set. Validators with identical stakes are typically ordered deterministically, with those who joined earlier having a lower index.
+
 ## High-Level Diagram
 
 Below is a high-level diagram of the TinyChain architecture:
