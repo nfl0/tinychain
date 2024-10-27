@@ -55,7 +55,7 @@ class Forger:
 
     @staticmethod
     def generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash):
-        values = [merkle_root, str(timestamp), str(state_root), str(previous_block_hash)]
+        values = [merkle_root, str(timestamp), str(state_root), previous_block_hash]
         concatenated_string = f"{''.join(values)}".encode()
         return blake3.blake3(concatenated_string).hexdigest()
 
@@ -530,36 +530,12 @@ async def get_nonce(request):
     nonce = storage_engine.get_nonce_for_account(account_address)
     return web.json_response({'nonce': nonce})
 
-async def get_blocks(request):
-    blocks = []
-    for key, value in storage_engine.db_blocks:
-        block = json.loads(value.decode())
-        blocks.append(block)
-    return web.json_response(blocks)
-
-async def get_transactions(request):
-    transactions = []
-    for key, value in storage_engine.db_transactions:
-        transaction = json.loads(value.decode())
-        transactions.append(transaction)
-    return web.json_response(transactions)
-
-async def get_balance(request):
-    account_address = request.match_info['account_address']
-    balance = storage_engine.fetch_balance(account_address)
-    if balance is not None:
-        return web.json_response({'balance': balance})
-    return web.json_response({'error': 'Account not found'}, status=404)
-
 app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/get_block_by_height/{height}', get_block_by_height)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 app.router.add_get('/get_nonce/{account_address}', get_nonce)
-app.router.add_get('/blocks', get_blocks)
-app.router.add_get('/transactions', get_transactions)
-app.router.add_get('/balance/{account_address}', get_balance)
 
 async def cleanup(app):
     await asyncio.gather(*[t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
