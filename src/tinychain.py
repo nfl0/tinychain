@@ -211,7 +211,11 @@ class Forger:
 
             # Check if 2/3 validators have signed
             if self.has_enough_signatures(block_header):
+
+                # Store the finalized block and broadcast it to validators
                 self.storage_engine.store_block(block)
+                self.broadcast_finalized_block(block)
+
                 self.storage_engine.store_block_header(block_header)
                 self.storage_engine.store_state(block.header.state_root, new_state)
                 return True
@@ -232,6 +236,10 @@ class Forger:
 
     def has_enough_signatures(self, block_header):  # P66ad
         # Logic to check if 2/3 validators have signed
+        return True
+    
+    def broadcast_finalized_block(self, block):
+        # Logic to broadcast finalized block to validators
         return True
 
 def genesis_procedure():
@@ -264,20 +272,6 @@ class StorageEngine:
         self.db_transactions = None
         self.db_states = None
         self.state = []
-
-    # todo: implement the genesis block logic along the DBs initialization, in seperate genesis.py
-    # if the dbs are not initialized, the program should exist and inform the user to first run the genesis.py to initialize the databases
-    # every time the program starts, it should first try to connect to peers and sync the blockchain. only then, the node can participate (or request to participate) in consensus/block production
-    # reminder: the node won't be allowed to participate in consensus if it's stake is 0
-
-    # ABOVE NOTES PROBABLY DEPRECATED!
-
-    # Genesis Procedure:
-    # if databases are empty: seed the transactionpool with the genesis block transactions: ("genesis", genesis_addresses[n], amount: 500, transfer), and (genesis_addresses[n], staking_contract_address, amount: 500, stake)
-    # then call forge_new_block (is_genesis=True) to forge the genesis block
-    
-    # todo: implement the block_header storage logic and figure the key is height or block_hash
-    
         
     def open_databases(self):
         try:
@@ -456,15 +450,6 @@ validation_engine = ValidationEngine(storage_engine)
 forger = Forger(transactionpool, storage_engine, validation_engine, wallet)
 
 
-# Api Endpoints
-
-# todo: add the gossip logic
-# identify the node types (validators and non-validators)
-# do validator nodes gossip their signatures to non-validator nodes?
-# add the endpoint responsible for requesting the signature for block "block_header.blockhash" from peer n. if the peer hasnt received the block_header
-# add the endpoint for broadcasting the newly forged block_header to peers
-# add the endpoint for broadcasting the signature for block_header.blockhash
-
 async def broadcast_transaction(transaction, sender_uri):
     for peer_uri in PEER_URIS:
         if peer_uri != sender_uri:
@@ -519,11 +504,24 @@ async def get_nonce(request):
     nonce = storage_engine.get_nonce_for_account(account_address)
     return web.json_response({'nonce': nonce})
 
+async def receive_finalized_block(request):
+    # implement receiving the finalized block 
+    return True
+
+async def receive_signature(request):
+    # implement receiving the signature along the block header
+    return True
+
+
+
 app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 app.router.add_get('/get_nonce/{account_address}', get_nonce)
+
+app.router.add_post('/receive_block', receive_finalized_block)
+app.router.add_post('/receive_block', receive_signature)
 
 async def cleanup(app):
     await asyncio.gather(*[t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
