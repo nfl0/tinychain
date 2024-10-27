@@ -11,12 +11,12 @@ async def index(request):
     return {}
 
 async def fetch_blocks(request):
-    response = requests.get('http://127.0.0.1:5000/get_blocks')
+    response = requests.get('http://127.0.0.1:5000/get_block_by_height')
     blocks = response.json()
     return web.json_response(blocks)
 
 async def fetch_transactions(request):
-    response = requests.get('http://127.0.0.1:5000/get_transactions')
+    response = requests.get('http://127.0.0.1:5000/transactions')
     transactions = response.json()
     return web.json_response(transactions)
 
