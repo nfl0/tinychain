@@ -12,7 +12,7 @@ from transaction import Transaction, transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
 from wallet import Wallet
-from parameters import HTTP_PORT, MAX_TX_POOL # todo: implement MAX_TX_BLOCK
+from parameters import HTTP_PORT, MAX_TX_POOL, PEER_URIS # todo: implement MAX_TX_BLOCK
 
 TINYCOIN = 1000000000000000000
 TINYCHAIN_UNIT = 'tatoshi'
@@ -477,6 +477,19 @@ forger = Forger(transactionpool, storage_engine, validation_engine, wallet)
 # add the endpoint for broadcasting the newly forged block_header to peers
 # add the endpoint for broadcasting the signature for block_header.blockhash
 
+async def broadcast_transaction(transaction, sender_uri):
+    for peer_uri in PEER_URIS:
+        if peer_uri != sender_uri:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(f'http://{peer_uri}/send_transaction', json={'transaction': transaction.to_dict()}) as response:
+                        if response.status == 200:
+                            logging.info(f"Transaction broadcasted to peer {peer_uri}")
+                        else:
+                            logging.error(f"Failed to broadcast transaction to peer {peer_uri}")
+            except Exception as e:
+                logging.error(f"Error broadcasting transaction to peer {peer_uri}: {e}")
+
 async def send_transaction(request):
     data = await request.json()
     if 'transaction' in data:
@@ -485,8 +498,11 @@ async def send_transaction(request):
             validate(instance=transaction_data, schema=transaction_schema)
             transaction = Transaction(**transaction_data)
             if validation_engine.validate_transaction(transaction):
-                transactionpool.add_transaction(transaction)
-                return web.json_response({'message': 'Transaction added to the transaction pool', 'transaction_hash': transaction.transaction_hash})
+                if transaction.transaction_hash not in transactionpool.transactions:
+                    transactionpool.add_transaction(transaction)
+                    sender_uri = request.remote
+                    await broadcast_transaction(transaction, sender_uri)
+                    return web.json_response({'message': 'Transaction added to the transaction pool', 'transaction_hash': transaction.transaction_hash})
         except ValidationError:
             pass
     return web.json_response({'error': 'Invalid transaction data'}, status=400)
