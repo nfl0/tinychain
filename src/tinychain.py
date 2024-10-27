@@ -416,14 +416,6 @@ class StorageEngine:
 
         return last_block_header
 
-    def fetch_block_by_height(self, height):
-        block_header_data = self.db_headers.get(str(height).encode())
-        if block_header_data is not None:
-            block_header = BlockHeader.from_dict(json.loads(block_header_data.decode()))
-            block_data = self.db_blocks.get(block_header.block_hash.encode())
-            return json.loads(block_data.decode()) if block_data is not None else None
-        return None
-
     def fetch_transaction(self, transaction_hash):
         transaction_data = self.db_transactions.get(transaction_hash.encode())
         return json.loads(transaction_data.decode()) if transaction_data is not None else None
@@ -513,13 +505,6 @@ async def get_block_by_hash(request):
         return web.json_response(block_data)
     return web.json_response({'error': 'Block not found'}, status=404)
 
-async def get_block_by_height(request):
-    height = request.match_info['height']
-    block_data = storage_engine.fetch_block_by_height(int(height))
-    if block_data is not None:
-        return web.json_response(block_data)
-    return web.json_response({'error': 'Block not found'}, status=404)
-
 async def toggle_production(request):
     forger.toggle_production()
     production_status = "enabled" if forger.production_enabled else "disabled"
@@ -533,7 +518,6 @@ async def get_nonce(request):
 app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
-app.router.add_get('/get_block_by_height/{height}', get_block_by_height)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 app.router.add_get('/get_nonce/{account_address}', get_nonce)
 
