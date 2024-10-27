@@ -230,9 +230,17 @@ class Forger:
             self.storage_engine.store_state(block.header.state_root, new_state)
             return True
 
-    def broadcast_block_header(self, block_header):  # P02ef
-        # Logic to broadcast block header to validators
-        pass
+    async def broadcast_block_header(self, block_header):  # P02ef
+        for peer_uri in PEER_URIS:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(f'http://{peer_uri}/receive_block', json={'block_header': block_header.to_dict()}) as response:
+                        if response.status == 200:
+                            logging.info(f"Block header broadcasted to peer {peer_uri}")
+                        else:
+                            logging.error(f"Failed to broadcast block header to peer {peer_uri}")
+            except Exception as e:
+                logging.error(f"Error broadcasting block header to peer {peer_uri}: {e}")
 
     def has_enough_signatures(self, block_header):  # P66ad
         # Logic to check if 2/3 validators have signed
