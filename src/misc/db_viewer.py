@@ -1,12 +1,23 @@
 import plyvel
+import json
 
 class DatabaseViewer:
     def __init__(self, db_path):
         self.db = plyvel.DB(db_path)
 
+    def format_entry(self, key, value):
+        return f"Key: {key.decode()}\nValue: {self.beautify_json(value.decode())}\n{'-'*40}"
+
+    def beautify_json(self, value):
+        try:
+            parsed = json.loads(value)
+            return json.dumps(parsed, indent=4, sort_keys=True)
+        except json.JSONDecodeError:
+            return value
+
     def view_all(self):
         for key, value in self.db:
-            print(f"Key: {key.decode()}, Value: {value.decode()}")
+            print(self.format_entry(key, value))
 
     def close(self):
         self.db.close()
