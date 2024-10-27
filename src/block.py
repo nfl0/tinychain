@@ -42,6 +42,9 @@ class BlockHeader:
             header_data['transaction_hashes']
         )
 
+    def append_signature(self, validator_address, signature):
+        self.signatures.append({"validator_address": validator_address, "signature": signature})
+
 class Block:
     def __init__(self, header, transactions):
         self.header = header
