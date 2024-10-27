@@ -2,7 +2,7 @@ import ecdsa
 from ecdsa import VerifyingKey
 import time
 from blake3 import blake3
-import re # todos: validate previous_bock_hash against regex.  
+import re
 
 from wallet import Wallet
 from block import Block
@@ -42,9 +42,6 @@ class ValidationEngine:
         if sender_balance is None or sender_balance < transaction.amount:
             return False
 
-        # todos: validate signature.
-        #if not Wallet.verify_signature(transaction.sender, transaction.signature, transaction.message):
-        #    return False
         if not self.verify_transaction_signature(transaction):
             return False
 
@@ -101,14 +98,12 @@ class ValidationEngine:
                 transaction_hashes = [blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
 
             if isinstance(transaction_hashes[0], str):
-                # If it's a string, encode it as bytes using UTF-8
                 transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
 
             return blake3(transaction_hashes[0]).hexdigest()
 
         transaction_hashes = [t.to_dict()['transaction_hash'] for t in block.transactions]
 
-        # Calculate the Merkle root of the block's transactions
         if len(transaction_hashes) == 0:
             computed_merkle_root = blake3(b'').hexdigest()
 
@@ -120,7 +115,6 @@ class ValidationEngine:
                 transaction_hashes = [blake3(transaction_hashes[i].encode() + transaction_hashes[i + 1].encode()).digest() for i in range(0, len(transaction_hashes), 2)]
 
             if isinstance(transaction_hashes[0], str):
-                # If it's a string, encode it as bytes using UTF-8
                 transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
 
         computed_merkle_root = blake3(transaction_hashes[0]).hexdigest()
@@ -129,7 +123,6 @@ class ValidationEngine:
             print("block.merkle_root != computed_merkle_root")
             return False
 
-        # verify the signature
         if Wallet.verify_signature(block.header.block_hash, block.header.signature, block.header.validator):
             return False
 
@@ -140,16 +133,6 @@ class ValidationEngine:
         return True
 
     def validate_collected_signatures(self, block_header, required_signatures):
-        """
-        Validate the collected signatures from validators.
-        
-        Args:
-            block_header (BlockHeader): The block header containing the signatures.
-            required_signatures (int): The number of required signatures for validation.
-        
-        Returns:
-            bool: True if the required number of valid signatures is collected, False otherwise.
-        """
         valid_signatures = 0
         for signature in block_header.signatures:
             validator_address = signature["validator_address"]
