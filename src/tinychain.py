@@ -282,14 +282,17 @@ def genesis_procedure():
     genesis_addresses = [
         "374225f9043c475981d2da0fd3efbe6b8e382bb3802c062eacfabe5e0867052238ed6acaf99c5c33c1cce1a3e1ef757efd9c857417f26e2e1b5d9ab9e90c9b4d",
         "50c43f64ba255a95ab641978af7009eecef03610d120eb35035fdb0ea3c1b7f05859382f117ff396230b7cb453992d3b0da1c03f8a0572086eb938862bf6d77e",
+        "aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c"
     ]
     staking_contract_address = "7374616b696e67"  # the word 'staking' in hex
     # genesis transactions
     genesis_transactions = [
-        Transaction("genesis", genesis_addresses[0], 1000*TINYCOIN, 40, 0, "consensus", ""),
-        Transaction(genesis_addresses[0], staking_contract_address, 500*TINYCOIN, 30, 0, "genesis_signature_0", "stake"),
-        Transaction("genesis", genesis_addresses[1], 1000*TINYCOIN, 20, 1, "consensus", ""),
-        Transaction(genesis_addresses[1], staking_contract_address, 500*TINYCOIN, 10, 0, "genesis_signature_1", "stake")
+        Transaction("genesis", genesis_addresses[0], 1000*TINYCOIN, 60, 0, "consensus", ""),
+        Transaction(genesis_addresses[0], staking_contract_address, 500*TINYCOIN, 50, 0, "genesis_signature_0", "stake"),
+        Transaction("genesis", genesis_addresses[1], 1000*TINYCOIN, 40, 1, "consensus", ""),
+        Transaction(genesis_addresses[1], staking_contract_address, 500*TINYCOIN, 30, 0, "genesis_signature_1", "stake"),
+        Transaction("genesis", genesis_addresses[2], 1000*TINYCOIN, 20, 2, "consensus", ""),
+        Transaction(genesis_addresses[2], staking_contract_address, 500*TINYCOIN, 10, 0, "genesis_signature_2", "stake")
     ]
     # loop through the genesis transactions and add to transaction pool
     for transaction in genesis_transactions:
@@ -297,6 +300,8 @@ def genesis_procedure():
     
     # call the forge_new_block method
     forger.forge_new_block(False, None, True)
+    time.sleep(2)
+    forger.forge_new_block(False, None, False)
     
 class StorageEngine:
     def __init__(self, transactionpool):

@@ -4,10 +4,6 @@ from merkle_tree import MerkleTree
 
 tinycoin = 1000000000000000000  # 1 tinycoin = 1000000000000000000 tatoshi
 BLOCK_REWARD = BLOCK_REWARD * tinycoin
-genesis_addresses = [
-    "374225f9043c475981d2da0fd3efbe6b8e382bb3802c062eacfabe5e0867052238ed6acaf99c5c33c1cce1a3e1ef757efd9c857417f26e2e1b5d9ab9e90c9b4d",
-    "50c43f64ba255a95ab641978af7009eecef03610d120eb35035fdb0ea3c1b7f05859382f117ff396230b7cb453992d3b0da1c03f8a0572086eb938862bf6d77e",
-]
 
 
 class TinyVMEngine:
@@ -71,7 +67,7 @@ class TinyVMEngine:
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
-            contract_state = {sender: 2000*tinycoin}  # the "genesis" account balance to be exhausted within genesis
+            contract_state = {sender: 3000*tinycoin}  # the "genesis" account balance to be exhausted within genesis
 
         if operation == "credit":
             current_balance = contract_state.get(sender, 0)
