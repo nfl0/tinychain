@@ -511,11 +511,25 @@ async def get_nonce(request):
 
 async def receive_signature(request):
     data = await request.json()
-    # verify the validity of the block header and verify the identity of the proposer through the included signature.
-    # submit the received block header to the forger for replay
-    return True
+    block_header_data = data.get('block_header')
+    if not block_header_data:
+        return web.json_response({'error': 'Invalid block header data'}, status=400)
 
+    block_header = BlockHeader.from_dict(block_header_data)
 
+    # Verify the validity of the block header
+    if not validation_engine.validate_block_header(block_header, storage_engine.fetch_last_block_header()):
+        return web.json_response({'error': 'Invalid block header'}, status=400)
+
+    # Verify the identity of the proposer through the included signature
+    proposer_signature = block_header.signatures[0]
+    if not Wallet.verify_signature(block_header.block_hash, proposer_signature.signature_data, proposer_signature.validator_address):
+        return web.json_response({'error': 'Invalid proposer signature'}, status=400)
+
+    # Submit the received block header to the forger for replay
+    forger.forge_new_block(replay=True, block_header=block_header)
+
+    return web.json_response({'message': 'Block header received and processed'})
 
 app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
