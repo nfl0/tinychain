@@ -140,7 +140,7 @@ class Forger:
             if is_genesis is False:
                 ### NEW BLOCK PROPOSAL CASE ###
                 # set proposer address
-                self.proposer = self.select_proposer()
+                self.proposer = self.wallet.get_address()
                 # generate timestamp
                 timestamp = int(time.time())
                 # generate state root

@@ -11,7 +11,7 @@ class MerkleTree:
 
     def root_hash(self):
         if len(self.leaves) == 0:
-            return None
+            return b''
 
         while len(self.leaves) > 1:
             new_leaves = []
