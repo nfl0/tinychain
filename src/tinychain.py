@@ -245,10 +245,6 @@ class Forger:
     def has_enough_signatures(self, block_header):  # P66ad
         # Logic to check if 2/3 validators have signed
         return True
-    
-    def broadcast_finalized_block(self, block):
-        # Logic to broadcast finalized block to validators
-        return True
 
 def genesis_procedure():
     genesis_addresses = [
@@ -512,12 +508,10 @@ async def get_nonce(request):
     nonce = storage_engine.get_nonce_for_account(account_address)
     return web.json_response({'nonce': nonce})
 
-async def receive_finalized_block(request):
-    # implement receiving the finalized block 
-    return True
-
 async def receive_signature(request):
-    # implement receiving the signature along the block header
+    data = await request.json()
+    # verify the validity of the block header and verify the identity of the proposer through the included signature.
+    # submit the received block header to the forger for replay
     return True
 
 
@@ -528,7 +522,6 @@ app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 app.router.add_get('/get_nonce/{account_address}', get_nonce)
 
-app.router.add_post('/receive_block', receive_finalized_block)
 app.router.add_post('/receive_block', receive_signature)
 
 async def cleanup(app):
