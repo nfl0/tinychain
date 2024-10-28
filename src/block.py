@@ -35,6 +35,8 @@ class Signature:
 
     @classmethod
     def from_dict(cls, signature_data):
+        if isinstance(signature_data, Signature):
+            return signature_data
         return cls(
             signature_data['validator_address'],
             signature_data['timestamp'],
