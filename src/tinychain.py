@@ -191,9 +191,6 @@ class Forger:
                         block_header.transaction_hashes
                     )
                     logging.info("Replay successful for block %s", block_header.block_hash)
-                    # Broadcast the signed block header back to the network
-                    asyncio.run(self.broadcast_block_header(block_header))
-
                 else:
                     logging.error("Replay failed for block %s (Merkle root mismatch)", block_header.block_hash)
                     return False
