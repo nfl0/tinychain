@@ -510,7 +510,7 @@ async def get_nonce(request):
     nonce = storage_engine.get_nonce_for_account(account_address)
     return web.json_response({'nonce': nonce})
 
-async def receive_signature(request):
+async def receive_block_header(request):
     data = await request.json()
     block_header_data = data.get('block_header')
     if not block_header_data:
@@ -538,7 +538,7 @@ app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 app.router.add_get('/get_nonce/{account_address}', get_nonce)
 
-app.router.add_post('/receive_block', receive_signature)
+app.router.add_post('/receive_block', receive_block_header)
 
 async def cleanup(app):
     await asyncio.gather(*[t for t in asyncio.all_tasks() if t is not asyncio.current_task()])
