@@ -7,7 +7,7 @@ from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 import blake3
 import time
-from block import BlockHeader, Block
+from block import BlockHeader, Block, Signature
 from transaction import Transaction, transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
@@ -136,7 +136,7 @@ class Forger:
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # sign the block
                 signature = self.sign(block_hash)
-                signatures = [{"validator_address": self.proposer, "signature": signature}]
+                signatures = [Signature(self.proposer, timestamp, signature)]
             else:
                 ### GENESIS BLOCK CASE ###
                 self.proposer = "genesis"
@@ -151,7 +151,7 @@ class Forger:
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # genesis signature
                 signature = "genesis_signature"
-                signatures = [{"validator_address": self.proposer, "signature": signature}]
+                signatures = [Signature(self.proposer, timestamp, signature)]
 
             block_header = BlockHeader(
                 block_hash,
@@ -186,7 +186,7 @@ class Forger:
                         block_header.merkle_root,
                         block_header.state_root,
                         block_header.proposer,
-                        signatures.append({self.validator, signature}),
+                        signatures.append(Signature(self.validator, int(time.time()), signature)),
                         block_header.transaction_hashes
                     )
                     logging.info("Replay successful for block %s", block_header.block_hash)
@@ -325,7 +325,7 @@ class StorageEngine:
                 'state_root': block.header.state_root,
                 'previous_block_hash': block.header.previous_block_hash,
                 'proposer': block.header.proposer,
-                'signatures': block.header.signatures,
+                'signatures': [sig.to_dict() for sig in block.header.signatures],
                 'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
 
@@ -345,7 +345,7 @@ class StorageEngine:
                 'state_root': block_header.state_root,
                 'previous_block_hash': block_header.previous_block_hash,
                 'proposer': block_header.proposer,
-                'signatures': block_header.signatures,
+                'signatures': [sig.to_dict() for sig in block_header.signatures],
                 'transaction_hashes': block_header.transaction_hashes # revisit this line
             }
 
