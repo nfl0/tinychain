@@ -56,6 +56,8 @@ class Forger:
         self.in_memory_blocks = {}  # P7e15
         self.in_memory_block_headers = {}  # P7e15
 
+        self.current_proposer_index = 0  # Initialize the current proposer index
+
     @staticmethod
     def generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash):
         values = [merkle_root, str(timestamp), str(state_root), previous_block_hash]
@@ -86,6 +88,20 @@ class Forger:
     
     def toggle_production(self):
         self.production_enabled = not self.production_enabled
+
+    def fetch_current_validator_set(self):
+        staking_contract_state = self.storage_engine.fetch_contract_state("7374616b696e67")
+        if staking_contract_state:
+            return sorted(staking_contract_state.keys(), key=lambda k: staking_contract_state[k]['index'])
+        return []
+
+    def select_proposer(self):
+        validator_set = self.fetch_current_validator_set()
+        if validator_set:
+            proposer = validator_set[self.current_proposer_index]
+            self.current_proposer_index = (self.current_proposer_index + 1) % len(validator_set)
+            return proposer
+        return None
 
     def forge_new_block(self, replay=True, block_header=None, is_genesis=False):
         if not self.production_enabled:
@@ -124,7 +140,7 @@ class Forger:
             if is_genesis is False:
                 ### NEW BLOCK PROPOSAL CASE ###
                 # set proposer address
-                self.proposer = self.wallet.get_address()
+                self.proposer = self.select_proposer()
                 # generate timestamp
                 timestamp = int(time.time())
                 # generate state root

@@ -131,6 +131,9 @@ class ValidationEngine:
             if not self.validate_transaction(transaction):
                 return False
 
+        if not self.validate_round_robin_proposer(block.header.proposer, previous_block_header.proposer):
+            return False
+
         return True
 
     def validate_block_header_signatures(self, block_header):
@@ -143,3 +146,12 @@ class ValidationEngine:
 
     def validate_enough_signatures(self, block_header, required_signatures):
         return len(block_header.signatures) >= required_signatures
+
+    def validate_round_robin_proposer(self, current_proposer, previous_proposer):
+        validator_set = self.storage_engine.fetch_contract_state("7374616b696e67")
+        if validator_set:
+            sorted_validators = sorted(validator_set.keys(), key=lambda k: validator_set[k]['index'])
+            previous_index = sorted_validators.index(previous_proposer)
+            expected_proposer = sorted_validators[(previous_index + 1) % len(sorted_validators)]
+            return current_proposer == expected_proposer
+        return False
