@@ -136,7 +136,8 @@ class Forger:
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # sign the block
                 signature = self.sign(block_hash)
-                signatures = [Signature(self.proposer, timestamp, signature)]
+                validator_index = self.get_validator_index(self.proposer)
+                signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
             else:
                 ### GENESIS BLOCK CASE ###
                 self.proposer = "genesis"
@@ -151,7 +152,8 @@ class Forger:
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # genesis signature
                 signature = "genesis_signature"
-                signatures = [Signature(self.proposer, timestamp, signature)]
+                validator_index = self.get_validator_index(self.proposer)
+                signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
 
             block_header = BlockHeader(
                 block_hash,
@@ -176,14 +178,15 @@ class Forger:
                 computed_merkle_root = self.compute_merkle_root(transaction_hashes)
                 if computed_merkle_root == block_header.merkle_root:
                     signature = self.wallet.sign_message(block_hash)
+                    validator_index = self.get_validator_index(self.validator)
                     signatures = block_header.signatures
                     logging.info("Block signatures: %s", signatures)
 
                     if isinstance(signatures, list) and all(isinstance(sig, Signature) for sig in signatures):
-                        signatures.append(Signature(self.validator, int(time.time()), signature))
+                        signatures.append(Signature(self.validator, int(time.time()), signature, validator_index))
                     else:
                         signatures = [Signature.from_dict(sig) for sig in signatures]
-                        signatures.append(Signature(self.validator, int(time.time()), signature))
+                        signatures.append(Signature(self.validator, int(time.time()), signature, validator_index))
 
                     block_header = BlockHeader(
                         block_header.block_hash,
@@ -252,6 +255,12 @@ class Forger:
     def has_enough_signatures(self, block_header):  # P66ad
         # Logic to check if 2/3 validators have signed
         return True
+
+    def get_validator_index(self, validator_address):
+        staking_contract_state = self.storage_engine.fetch_contract_state("7374616b696e67")
+        if staking_contract_state and validator_address in staking_contract_state:
+            return staking_contract_state[validator_address]['index']
+        return -1
 
 def genesis_procedure():
     genesis_addresses = [
