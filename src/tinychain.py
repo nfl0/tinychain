@@ -179,6 +179,12 @@ class Forger:
                     signatures = block_header.signatures
                     logging.info("Block signatures: %s", signatures)
 
+                    if isinstance(signatures, list) and all(isinstance(sig, Signature) for sig in signatures):
+                        signatures.append(Signature(self.validator, int(time.time()), signature))
+                    else:
+                        signatures = [Signature.from_dict(sig) for sig in signatures]
+                        signatures.append(Signature(self.validator, int(time.time()), signature))
+
                     block_header = BlockHeader(
                         block_header.block_hash,
                         block_header.height,
@@ -187,7 +193,7 @@ class Forger:
                         block_header.merkle_root,
                         block_header.state_root,
                         block_header.proposer,
-                        signatures.append(Signature(self.validator, int(time.time()), signature)),
+                        signatures,
                         block_header.transaction_hashes
                     )
                     logging.info("Replay successful for block %s", block_header.block_hash)
