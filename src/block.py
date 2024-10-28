@@ -74,6 +74,19 @@ class BlockHeader:
             header_data['transaction_hashes']
         )
 
+    def to_dict(self):
+        return {
+            'block_hash': self.block_hash,
+            'height': self.height,
+            'timestamp': self.timestamp,
+            'previous_block_hash': self.previous_block_hash,
+            'merkle_root': self.merkle_root,
+            'state_root': self.state_root,
+            'proposer': self.proposer,
+            'signatures': [sig.to_dict() for sig in self.signatures],
+            'transaction_hashes': self.transaction_hashes
+        }
+    
     def append_signature(self, validator_address, signature_data):
         timestamp = int(time.time())
         signature = Signature(validator_address, timestamp, signature_data)

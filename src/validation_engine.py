@@ -133,11 +133,11 @@ class ValidationEngine:
 
         return True
 
-    def validate_collected_signatures(self, block_header, required_signatures):
-        valid_signatures = 0
+    def validate_block_header_signatures(self, block_header):
         for signature in block_header.signatures:
-            if Wallet.verify_signature(block_header.block_hash, signature.signature_data, signature.validator_address):
-                valid_signatures += 1
-            if valid_signatures >= required_signatures:
-                return True
-        return False
+            if not Wallet.verify_signature(block_header.block_hash, signature.signature_data, signature.validator_address):
+                return False
+        return True
+
+    def validate_enough_signatures(self, block_header, required_signatures):
+        return len(block_header.signatures) >= required_signatures
