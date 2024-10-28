@@ -220,9 +220,8 @@ class Forger:
             # Check if 2/3 validators have signed
             if self.has_enough_signatures(block_header):
 
-                # Store the finalized block and broadcast it to validators
+                # Store the finalized block
                 self.storage_engine.store_block(block)
-                self.broadcast_finalized_block(block)
 
                 self.storage_engine.store_block_header(block_header)
                 self.storage_engine.store_state(block.header.state_root, new_state)
