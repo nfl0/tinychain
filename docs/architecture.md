@@ -48,6 +48,8 @@ The staking contract in TinyChain includes the following fields for each validat
 - **Status**: The status of the validator (e.g., active, inactive).
 - **Index**: The index value of the validator, which is determined by the order in which they joined the validator set. Validators with identical stakes are typically ordered deterministically, with those who joined earlier having a lower index.
 
+Note: The validator's index is also included in the block header signatures.
+
 ## Block Header Signatures
 
 The `signatures` field in the `BlockHeader` is an array of `Signature` objects. Each `Signature` object contains the following fields:
@@ -55,6 +57,7 @@ The `signatures` field in the `BlockHeader` is an array of `Signature` objects. 
 - **ValidatorAddress**: The address of the validator.
 - **Timestamp**: The timestamp of the signature.
 - **SignatureData**: The actual signature data.
+- **ValidatorIndex**: The index of the validator.
 
 ## High-Level Diagram
 

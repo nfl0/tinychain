@@ -17,9 +17,10 @@ block_header_schema = {
                 'properties': {
                     'validator_address': {'type': 'string'},
                     'timestamp': {'type': 'number'},
-                    'signature_data': {'type': 'string'}
+                    'signature_data': {'type': 'string'},
+                    'validator_index': {'type': 'number'}
                 },
-                'required': ['validator_address', 'timestamp', 'signature_data']
+                'required': ['validator_address', 'timestamp', 'signature_data', 'validator_index']
             }
         },
         'transaction_hashes': {'type': 'array', 'items': {'type': 'string'}}
@@ -28,10 +29,11 @@ block_header_schema = {
 }
 
 class Signature:
-    def __init__(self, validator_address, timestamp, signature_data):
+    def __init__(self, validator_address, timestamp, signature_data, validator_index):
         self.validator_address = validator_address
         self.timestamp = timestamp
         self.signature_data = signature_data
+        self.validator_index = validator_index
 
     @classmethod
     def from_dict(cls, signature_data):
@@ -40,14 +42,16 @@ class Signature:
         return cls(
             signature_data['validator_address'],
             signature_data['timestamp'],
-            signature_data['signature_data']
+            signature_data['signature_data'],
+            signature_data['validator_index']
         )
 
     def to_dict(self):
         return {
             'validator_address': self.validator_address,
             'timestamp': self.timestamp,
-            'signature_data': self.signature_data
+            'signature_data': self.signature_data,
+            'validator_index': self.validator_index
         }
 
 class BlockHeader:
@@ -90,9 +94,9 @@ class BlockHeader:
             'transaction_hashes': self.transaction_hashes
         }
     
-    def append_signature(self, validator_address, signature_data):
+    def append_signature(self, validator_address, signature_data, validator_index):
         timestamp = int(time.time())
-        signature = Signature(validator_address, timestamp, signature_data)
+        signature = Signature(validator_address, timestamp, signature_data, validator_index)
         self.signatures.append(signature)
 
     def find_signature_by_validator(self, validator_address):

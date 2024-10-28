@@ -137,6 +137,8 @@ class ValidationEngine:
         for signature in block_header.signatures:
             if not Wallet.verify_signature(block_header.block_hash, signature.signature_data, signature.validator_address):
                 return False
+            if signature.validator_index is None:
+                return False
         return True
 
     def validate_enough_signatures(self, block_header, required_signatures):
