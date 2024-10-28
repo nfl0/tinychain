@@ -62,7 +62,7 @@ class BlockHeader:
 
     @classmethod
     def from_dict(cls, header_data):
-        return cls(
+        block_header = cls(
             header_data['block_hash'],
             header_data['height'],
             header_data['timestamp'],
@@ -73,6 +73,7 @@ class BlockHeader:
             header_data['signatures'],
             header_data['transaction_hashes']
         )
+        return block_header
 
     def to_dict(self):
         return {
@@ -97,6 +98,16 @@ class BlockHeader:
             if signature.validator_address == validator_address:
                 return signature
         return None
+
+    def append_signatures(self, new_signatures):
+        for new_signature in new_signatures:
+            existing_signature = self.find_signature_by_validator(new_signature.validator_address)
+            if existing_signature is None:
+                self.signatures.append(new_signature)
+            else:
+                if new_signature.timestamp > existing_signature.timestamp:
+                    self.signatures.remove(existing_signature)
+                    self.signatures.append(new_signature)
 
 class Block:
     def __init__(self, header, transactions):
