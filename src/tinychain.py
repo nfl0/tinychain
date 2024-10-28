@@ -165,6 +165,7 @@ class Forger:
                 transaction_hashes
             )
         else:
+            ### BLOCK REPLAY CASE ###
             # execute transactions
             state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, block_header.proposer)
             # check if state_root matches
