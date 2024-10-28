@@ -533,8 +533,13 @@ async def receive_block_header(request):
     if proposer_signature is None or not Wallet.verify_signature(block_header.block_hash, proposer_signature.signature_data, proposer_signature.validator_address):
         return web.json_response({'error': 'Invalid proposer signature'}, status=400)
 
-    # Submit the received block header to the forger for replay
-    forger.forge_new_block(replay=True, block_header=block_header)
+    # Check if a block header with the same hash already exists in memory
+    if block_header.block_hash in forger.in_memory_block_headers:
+        existing_block_header = forger.in_memory_block_headers[block_header.block_hash]
+        existing_block_header.append_signatures(block_header.signatures)
+    else:
+        # Submit the received block header to the forger for replay
+        forger.forge_new_block(replay=True, block_header=block_header)
 
     return web.json_response({'message': 'Block header received and processed'})
 
