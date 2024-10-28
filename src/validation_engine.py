@@ -5,7 +5,7 @@ from blake3 import blake3
 import re
 
 from wallet import Wallet
-from block import Block
+from block import Block, Signature
 
 class ValidationEngine:
     def __init__(self, storage_engine):
@@ -123,8 +123,9 @@ class ValidationEngine:
             print("block.merkle_root != computed_merkle_root")
             return False
 
-        if Wallet.verify_signature(block.header.block_hash, block.header.signature, block.header.validator):
-            return False
+        for signature in block.header.signatures:
+            if not Wallet.verify_signature(block.header.block_hash, signature.signature_data, signature.validator_address):
+                return False
 
         for transaction in block.header.transactions:
             if not self.validate_transaction(transaction):
@@ -135,9 +136,7 @@ class ValidationEngine:
     def validate_collected_signatures(self, block_header, required_signatures):
         valid_signatures = 0
         for signature in block_header.signatures:
-            validator_address = signature["validator_address"]
-            signature_value = signature["signature"]
-            if Wallet.verify_signature(block_header.block_hash, signature_value, validator_address):
+            if Wallet.verify_signature(block_header.block_hash, signature.signature_data, signature.validator_address):
                 valid_signatures += 1
             if valid_signatures >= required_signatures:
                 return True
