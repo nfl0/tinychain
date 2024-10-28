@@ -92,6 +92,12 @@ class BlockHeader:
         signature = Signature(validator_address, timestamp, signature_data)
         self.signatures.append(signature)
 
+    def find_signature_by_validator(self, validator_address):
+        for signature in self.signatures:
+            if signature.validator_address == validator_address:
+                return signature
+        return None
+
 class Block:
     def __init__(self, header, transactions):
         self.header = header

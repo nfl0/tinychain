@@ -510,6 +510,12 @@ async def get_nonce(request):
     nonce = storage_engine.get_nonce_for_account(account_address)
     return web.json_response({'nonce': nonce})
 
+def find_proposer_signature(block_header):
+    for signature in block_header.signatures:
+        if signature.validator_address == block_header.proposer:
+            return signature
+    return None
+
 async def receive_block_header(request):
     data = await request.json()
     block_header_data = data.get('block_header')
@@ -523,8 +529,8 @@ async def receive_block_header(request):
         return web.json_response({'error': 'Invalid block header'}, status=400)
 
     # Verify the identity of the proposer through the included signature
-    proposer_signature = block_header.signatures[0]
-    if not Wallet.verify_signature(block_header.block_hash, proposer_signature.signature_data, proposer_signature.validator_address):
+    proposer_signature = find_proposer_signature(block_header)
+    if proposer_signature is None or not Wallet.verify_signature(block_header.block_hash, proposer_signature.signature_data, proposer_signature.validator_address):
         return web.json_response({'error': 'Invalid proposer signature'}, status=400)
 
     # Submit the received block header to the forger for replay
