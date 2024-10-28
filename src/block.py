@@ -9,22 +9,22 @@ block_header_schema = {
         'previous_block_hash': {'type': 'string'},
         'merkle_root': {'type': 'string'},
         'state_root': {'type': 'string'},
-        'validator': {'type': 'string'},
+        'proposer': {'type': 'string'},
         'signatures': {'type': 'array', 'items': {'type': 'string'}},
         'transaction_hashes': {'type': 'array', 'items': {'type': 'string'}}
     },
-    'required': ['block_hash', 'height', 'timestamp', 'previous_block_hash', 'state_root', 'validator', 'signatures', 'transaction_hashes']
+    'required': ['block_hash', 'height', 'timestamp', 'previous_block_hash', 'state_root', 'proposer', 'signatures', 'transaction_hashes']
 }
 
 class BlockHeader:
-    def __init__(self, block_hash, height, timestamp, previous_block_hash, merkle_root, state_root, validator, signatures, transaction_hashes):
+    def __init__(self, block_hash, height, timestamp, previous_block_hash, merkle_root, state_root, proposer, signatures, transaction_hashes):
         self.block_hash = block_hash
         self.height = height
         self.timestamp = timestamp
         self.previous_block_hash = previous_block_hash
         self.merkle_root = merkle_root
         self.state_root = state_root
-        self.validator = validator
+        self.proposer = proposer
         self.signatures = signatures
         self.transaction_hashes = transaction_hashes
 
@@ -37,7 +37,7 @@ class BlockHeader:
             header_data['previous_block_hash'],
             header_data['merkle_root'],
             header_data['state_root'],
-            header_data['validator'],
+            header_data['proposer'],
             header_data['signatures'],
             header_data['transaction_hashes']
         )

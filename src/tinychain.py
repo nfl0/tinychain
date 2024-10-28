@@ -48,7 +48,7 @@ class Forger:
         self.validation_engine = validation_engine
 
         self.wallet = wallet
-        self.validator = self.wallet.get_address()
+        self.validator = self.proposer = self.wallet.get_address()
         self.sign = self.wallet.sign_message
 
         self.production_enabled = True
@@ -122,12 +122,13 @@ class Forger:
 
         if replay is False:
             if is_genesis is False:
-                # set validator address
-                self.validator = self.wallet.get_address()
+                ### NEW BLOCK PROPOSAL CASE ###
+                # set proposer address
+                self.proposer = self.wallet.get_address()
                 # generate timestamp
                 timestamp = int(time.time())
                 # generate state root
-                state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, self.validator)
+                state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, self.proposer)
                 # generate merkle root
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in valid_transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
@@ -135,13 +136,13 @@ class Forger:
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # sign the block
                 signature = self.sign(block_hash)
-                signatures = [{"validator_address": self.validator, "signature": signature}]
+                signatures = [{"validator_address": self.proposer, "signature": signature}]
             else:
                 ### GENESIS BLOCK CASE ###
-                self.validator = "genesis"
+                self.proposer = "genesis"
                 timestamp = int(19191919)
                 # generate state root
-                state_root, new_state = tvm_engine.exec(transactions_to_forge, self.validator)
+                state_root, new_state = tvm_engine.exec(transactions_to_forge, self.proposer)
                 # generate merkle root
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
@@ -150,7 +151,7 @@ class Forger:
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # genesis signature
                 signature = "genesis_signature"
-                signatures = [{"validator_address": self.validator, "signature": signature}]
+                signatures = [{"validator_address": self.proposer, "signature": signature}]
 
             block_header = BlockHeader(
                 block_hash,
@@ -159,13 +160,13 @@ class Forger:
                 previous_block_hash,
                 merkle_root,
                 state_root,
-                self.validator,
+                self.proposer,
                 signatures,
                 transaction_hashes
             )
         else:
             # execute transactions
-            state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, block_header.validator)
+            state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, block_header.proposer)
             # check if state_root matches
             if state_root == block_header.state_root:
                 # check if merkle_root matches
@@ -184,7 +185,7 @@ class Forger:
                         block_header.previous_block_hash,
                         block_header.merkle_root,
                         block_header.state_root,
-                        block_header.validator,
+                        block_header.proposer,
                         signatures.append({self.validator, signature}),
                         block_header.transaction_hashes
                     )
@@ -323,7 +324,7 @@ class StorageEngine:
                 'merkle_root': block.header.merkle_root,
                 'state_root': block.header.state_root,
                 'previous_block_hash': block.header.previous_block_hash,
-                'validator': block.header.validator,
+                'proposer': block.header.proposer,
                 'signatures': block.header.signatures,
                 'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
@@ -343,9 +344,9 @@ class StorageEngine:
                 'merkle_root': block_header.merkle_root,
                 'state_root': block_header.state_root,
                 'previous_block_hash': block_header.previous_block_hash,
-                'validator': block_header.validator,
+                'proposer': block_header.proposer,
                 'signatures': block_header.signatures,
-                'transaction_hashes': block_header.transaction_hashes # reviset this line
+                'transaction_hashes': block_header.transaction_hashes # revisit this line
             }
 
             self.db_headers.put(str(block_header.height).encode(), json.dumps(block_header_data).encode())
