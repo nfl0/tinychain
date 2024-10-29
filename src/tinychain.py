@@ -472,8 +472,9 @@ class StorageEngine:
         return json.loads(state_data.decode()) if state_data is not None else None
 
     def fetch_contract_state(self, contract_address):
-        contract_state_data = self.db_states.get(contract_address.encode()) # todo: db_states.get should access the correct state using the state_root key
-        return json.loads(contract_state_data.decode()) if contract_state_data is not None else None
+        state_root = self.fetch_last_block_header().state_root
+        contract_state_data = self.db_states.get(state_root.encode()) # Pdb0d
+        return json.loads(contract_state_data.decode()).get(contract_address) if contract_state_data is not None else None # Pc603
     
     def close(self):
         self.close_databases()
