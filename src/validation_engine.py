@@ -53,9 +53,14 @@ class ValidationEngine:
         vk = VerifyingKey.from_string(bytes.fromhex(public_key), curve=ecdsa.SECP256k1)
         message = f"{transaction.sender}-{transaction.receiver}-{transaction.amount}-{transaction.memo}-{transaction.fee}-{transaction.nonce}"
         try:
+            if not re.fullmatch(r'[0-9a-fA-F]+', signature):
+                raise ValueError("Invalid hexadecimal string for signature")
             vk.verify(bytes.fromhex(signature), message.encode())
             return True
         except ecdsa.BadSignatureError:
+            return False
+        except ValueError as e:
+            print(f"Error: {e}")
             return False
 
     def validate_block_header(self, block, previous_block_header):
