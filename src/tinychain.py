@@ -282,7 +282,7 @@ def genesis_procedure():
     genesis_addresses = [
         "374225f9043c475981d2da0fd3efbe6b8e382bb3802c062eacfabe5e0867052238ed6acaf99c5c33c1cce1a3e1ef757efd9c857417f26e2e1b5d9ab9e90c9b4d",
         "50c43f64ba255a95ab641978af7009eecef03610d120eb35035fdb0ea3c1b7f05859382f117ff396230b7cb453992d3b0da1c03f8a0572086eb938862bf6d77e",
-        "aa9cbc6fe2966cd9343aab811e38cdfea9364c6563bf4939015f700d15c629a381af89af25ea29beb073c695f155f6d22abd1c864f8339e7f3536e88c2c6b98c"
+        "7ff08d4ddd1be1305e77db4064bb71f2c0872599334db03fc36d8cab3fb349c4e1dfb6262bd3e118f37aa8d19827f0aa56bf9052bb9c5b6e16e0679706124e38"
     ]
     staking_contract_address = "7374616b696e67"  # the word 'staking' in hex
     # genesis transactions

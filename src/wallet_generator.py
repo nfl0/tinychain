@@ -4,6 +4,7 @@ import pickle
 from mnemonic import Mnemonic
 
 WALLET_PATH = './wallet/'
+WALLET_FILE = 'wallet.dat'
 
 def generate_mnemonic():
     mnemo = Mnemonic("english")
@@ -19,11 +20,22 @@ def save_wallet(private_key, filename):
     with open(os.path.join(WALLET_PATH, filename), "wb") as file:
         pickle.dump(private_key, file)
 
+def wallet_exists(filename):
+    return os.path.exists(os.path.join(WALLET_PATH, filename))
+
 def main():
     os.makedirs(WALLET_PATH, exist_ok=True)
+
+    if wallet_exists(WALLET_FILE):
+        print(f"Wallet already exists at {WALLET_PATH + WALLET_FILE}.")
+        print("Aborting to prevent overwrite.")
+        return
+
     mnemonic = generate_mnemonic()
     private_key, public_key = generate_keypair_from_mnemonic(mnemonic)
-    save_wallet(private_key, "wallet.dat")
+
+    save_wallet(private_key, WALLET_FILE)
+
     print("Mnemonic:", mnemonic)
     print("Private Key:", private_key.to_string().hex())
     print("Public Key:", public_key.to_string().hex())
