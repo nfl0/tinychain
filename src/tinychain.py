@@ -385,9 +385,6 @@ class StorageEngine:
 
     def store_block_header(self, block_header):
         try:
-            if not isinstance(block_header, dict):
-                logging.error("Failed to store block header: block_header is not a dictionary")
-                return
             block_header_data = {
                 'block_hash': block_header.block_hash,
                 'height': block_header.height,
@@ -451,7 +448,6 @@ class StorageEngine:
                 if block_header.height > max_height:
                     max_height = block_header.height
                     last_block_header = block_header
-
         return last_block_header
 
     def fetch_transaction(self, transaction_hash):
@@ -493,7 +489,7 @@ class StorageEngine:
         return json.loads(state_data.decode()) if state_data is not None else None
 
     def fetch_contract_state(self, contract_address):
-        state_root = self.fetch_last_block_header().state_root
+        state_root = self.fetch_last_block_header().state_root  #state root is None at genesis block
         contract_state_data = self.db_states.get(state_root.encode()) # Pdb0d
         return json.loads(contract_state_data.decode()).get(contract_address) if contract_state_data is not None else None # Pc603
     

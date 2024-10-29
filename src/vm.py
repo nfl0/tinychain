@@ -5,7 +5,6 @@ from merkle_tree import MerkleTree
 tinycoin = 1000000000000000000  # 1 tinycoin = 1000000000000000000 tatoshi
 BLOCK_REWARD = BLOCK_REWARD * tinycoin
 
-
 class TinyVMEngine:
     def __init__(self, current_state):
         self.merkle_tree = MerkleTree()
@@ -13,24 +12,23 @@ class TinyVMEngine:
 
         ### System Contracts ###
         self.accounts_contract_address = "6163636f756e7473"
-        self.staking_contract_address = "7374616b696e67"  # the word 'staking' in hex
-        self.storage_contract_address = "73746f72616765"  # the word'storage' in hex
-        ### End of System SCs ###
+        self.staking_contract_address = "7374616b696e67"  # 'staking' in hex
+        self.storage_contract_address = "73746f72616765"  # 'storage' in hex
 
-    def exec(self, transactions, validator):
-
+    def exec(self, transactions, proposer):
         accounts_contract_state = self.current_state.get(self.accounts_contract_address)
         staking_contract_state = self.current_state.get(self.staking_contract_address)
 
-        # Update validator account balance with block reward
-        if validator != "genesis":
+        summary = {"success": 0, "failed": 0}
+
+        # Reward proposer (if not genesis block)
+        if proposer != "genesis":
             accounts_contract_state = self.execute_accounts_contract(
-                accounts_contract_state, validator, None, BLOCK_REWARD, "credit"
+                accounts_contract_state, proposer, None, BLOCK_REWARD, "credit"
             )
 
+        # Process each transaction
         for transaction in transactions:
-            print (transaction.fee)
-            logging.info(f"TinyVM: (main): executing transaction: {transaction.transaction_hash}")
             sender, receiver, amount, memo = (
                 transaction.sender,
                 transaction.receiver,
@@ -38,87 +36,85 @@ class TinyVMEngine:
                 transaction.memo,
             )
 
-            accounts_contract_state = self.execute_accounts_contract(
-                accounts_contract_state, sender, receiver, amount, "transfer"
+            success = self.process_transaction(
+                accounts_contract_state, staking_contract_state, sender, receiver, amount, memo
             )
+            if success:
+                summary["success"] += 1
+            else:
+                summary["failed"] += 1
 
-            if receiver == self.staking_contract_address:
-                if memo in ("stake", "unstake"):
-                    if memo == "stake":
-                        is_stake = True
-                    else:
-                        is_stake = False
-
-                    staking_contract_state, accounts_contract_state = self.execute_staking_contract(
-                        staking_contract_state, sender, amount, is_stake, accounts_contract_state
-                    )
-                else:
-                    logging.info("TinyVM: (main): Invalid memo. Try 'stake' or 'unstake'")
-
+        # Final state update
         state = {
             self.accounts_contract_address: accounts_contract_state,
             self.staking_contract_address: staking_contract_state,
         }
+
         # Calculate the Merkle root
         state_root = self.merkle_tree.root_hash().hex()
 
+        # Log summary result
+        logging.info(f"TinyVM: Execution Summary - Success: {summary['success']}, Failed: {summary['failed']}")
+
         return state_root, state
 
+    def process_transaction(self, accounts_state, staking_state, sender, receiver, amount, memo):
+        """Handles a single transaction and returns True on success, False on failure."""
+        if receiver == self.staking_contract_address and memo in ("stake", "unstake"):
+            is_stake = memo == "stake"
+            staking_state, accounts_state = self.execute_staking_contract(
+                staking_state, sender, amount, is_stake, accounts_state
+            )
+            return True
+        elif memo not in ("stake", "unstake") and receiver == self.staking_contract_address:
+            logging.info(f"TinyVM: Invalid memo '{memo}'. Use 'stake' or 'unstake'.")
+            return False
+
+        # Execute regular transfer
+        return self.execute_accounts_contract(accounts_state, sender, receiver, amount, "transfer") is not None
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
-            contract_state = {sender: 6000*tinycoin}  # the "genesis" account balance to be exhausted within genesis
+            contract_state = {sender: 6000 * tinycoin}  # Genesis account initial balance
 
         if operation == "credit":
-            current_balance = contract_state.get(sender, 0)
-            new_balance = current_balance + amount
-            contract_state[sender] = new_balance
+            contract_state[sender] = contract_state.get(sender, 0) + amount
         elif operation == "transfer":
-            logging.info("TinyVM: (accounts contract) Transfer initiated")
             sender_balance = contract_state.get(sender, 0)
             receiver_balance = contract_state.get(receiver, 0)
 
             if sender_balance >= amount:
                 contract_state[sender] = sender_balance - amount
                 contract_state[receiver] = receiver_balance + amount
-
-                logging.info(f"TinyVM: (accounts contract) {sender}: {sender_balance} -> {contract_state[sender]}")
-                logging.info(f"TinyVM: (accounts contract) {receiver}: {receiver_balance} -> {contract_state[receiver]}")
-                logging.info("TinyVM: (accounts contract) Transfer completed")
             else:
-                logging.info(f"TinyVM: (accounts contract) Insufficient balance for sender: {sender}")
+                logging.info(f"TinyVM: Insufficient balance for sender: {sender}")
+                return None  # Transaction failed
 
         self.merkle_tree.append(bytes(str(contract_state), "utf-8"))
         return contract_state
 
-    def execute_staking_contract(self, contract_state, sender, amount, operation, accounts_contract_state):
+    def execute_staking_contract(self, contract_state, sender, amount, is_stake, accounts_state):
         if contract_state is None:
             contract_state = {}
+
         staked_balance = contract_state.get(sender, {"balance": 0, "status": "active", "index": len(contract_state)})
-        if operation:
-            new_staked_balance = staked_balance["balance"] + amount
-            contract_state[sender] = {"balance": new_staked_balance, "status": "active", "index": staked_balance["index"]}
-            logging.info(
-                f"TinyVM (staking contract): {sender} staked {amount} tinycoins for contract {self.staking_contract_address}. New staked balance: {new_staked_balance}"
-            )
+
+        if is_stake:
+            staked_balance["balance"] += amount
+            staked_balance["status"] = "active"
         else:
             if staked_balance["balance"] > 0:
                 released_balance = staked_balance["balance"]
-                contract_state[sender] = {"balance": 0, "status": "inactive", "index": staked_balance["index"]}
+                staked_balance["balance"] = 0
+                staked_balance["status"] = "inactive"
+
                 self.execute_accounts_contract(
-                    accounts_contract_state,
-                    self.staking_contract_address,
-                    sender,
-                    released_balance,
-                    "transfer",
-                )
-                logging.info(
-                    f"TinyVM (staking contract): {sender} unstaked {released_balance} tinycoins for contract {self.staking_contract_address}. Staked balance reset to zero."
+                    accounts_state, self.staking_contract_address, sender, released_balance, "transfer"
                 )
             else:
-                logging.info(
-                    f"TinyVM (staking contract): {sender} has no staked tinycoins for contract {self.staking_contract_address} to unstake."
-                )
+                logging.info(f"TinyVM: No staked tinycoins to unstake for {sender}.")
+                return contract_state, accounts_state  # No change
 
+        contract_state[sender] = staked_balance
         self.merkle_tree.append(bytes(str(contract_state), "utf-8"))
-        return contract_state, accounts_contract_state
+        return contract_state, accounts_state
