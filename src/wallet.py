@@ -5,12 +5,6 @@ import os
 WALLET_PATH = './wallet/'
 
 class Wallet:
-    def generate_keypair(self, filename):
-        private_key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
-        with open(os.path.join(WALLET_PATH, filename), "wb") as file:
-            pickle.dump(private_key, file)
-        return True
-
     def sign_message(self, message):
         with open(os.path.join(WALLET_PATH, "wallet.dat"), "rb") as file:
             private_key = pickle.load(file)
@@ -33,9 +27,5 @@ class Wallet:
         except ecdsa.BadSignatureError:
             return False
 
-os.makedirs(WALLET_PATH, exist_ok=True)
-if not os.path.exists(os.path.join(WALLET_PATH, "wallet.dat")):
-    wallet = Wallet()
-    wallet.generate_keypair("wallet.dat")
-    print("New wallet generated! Please fund it with some coins.")
-    print("Wallet address:", wallet.get_address())
+    def is_initialized(self):
+        return os.path.exists(os.path.join(WALLET_PATH, "wallet.dat"))

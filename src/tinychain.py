@@ -488,6 +488,9 @@ storage_engine = StorageEngine(transactionpool)
 validation_engine = ValidationEngine(storage_engine)
 forger = Forger(transactionpool, storage_engine, validation_engine, wallet)
 
+if not wallet.is_initialized():
+    print("Wallet is not initialized. Please run wallet_generator.py to generate a wallet.")
+    exit()
 
 async def broadcast_transaction(transaction, sender_uri):
     for peer_uri in PEER_URIS:
