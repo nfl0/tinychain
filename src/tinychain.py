@@ -489,7 +489,10 @@ class StorageEngine:
         return json.loads(state_data.decode()) if state_data is not None else None
 
     def fetch_contract_state(self, contract_address):
-        state_root = self.fetch_last_block_header().state_root  #state root is None at genesis block
+        if self.fetch_last_block_header() is not None:
+            state_root = self.fetch_last_block_header().state_root  #state root is None at genesis block
+        else:
+            state_root = "0"
         contract_state_data = self.db_states.get(state_root.encode()) # Pdb0d
         return json.loads(contract_state_data.decode()).get(contract_address) if contract_state_data is not None else None # Pc603
     
