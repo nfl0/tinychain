@@ -449,9 +449,12 @@ class StorageEngine:
         if accounts_state is not None:
             account_data = accounts_state.get(account_address, None)
             if account_data is not None:
-                balance = account_data.get("balance", 0)
-                nonce = account_data.get("nonce", 0)
-                return balance, nonce
+                if isinstance(account_data, dict):
+                    balance = account_data.get("balance", 0)
+                    nonce = account_data.get("nonce", 0)
+                    return balance, nonce
+                else:
+                    return account_data, 0
         return 0, 0
     
     def set_nonce_for_account(self, account_address, nonce):
