@@ -1,0 +1,4 @@
+Mnemonic: help island system layer cricket flat honey goose filter pen universe sure critic girl tip stereo embrace follow twin confirm arrange path retreat author
+Private Key: fc4db4bf067131cccef6b85aee945786b3587d4f07a8ce8df54926440bc6b393
+Public Key: 7ff08d4ddd1be1305e77db4064bb71f2c0872599334db03fc36d8cab3fb349c4e1dfb6262bd3e118f37aa8d19827f0aa56bf9052bb9c5b6e16e0679706124e38
+
