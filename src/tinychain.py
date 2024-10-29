@@ -303,8 +303,6 @@ def genesis_procedure():
     
     # call the forge_new_block method
     forger.forge_new_block(False, None, True)
-    time.sleep(2)
-    forger.forge_new_block(False, None, False)
     
 class StorageEngine:
     def __init__(self, transactionpool):
