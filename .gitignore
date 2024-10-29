@@ -6,3 +6,4 @@ transactions.db
 states.db
 settings.json
 .venv
+wallet
