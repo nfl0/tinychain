@@ -168,7 +168,7 @@ class Forger:
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
                 # genesis signature
                 signature = "genesis_signature"
-                validator_index = self.get_validator_index(self.proposer)
+                validator_index = -1
                 signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
 
             block_header = BlockHeader(
