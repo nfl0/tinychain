@@ -449,18 +449,19 @@ class StorageEngine:
         if accounts_state is not None:
             account_data = accounts_state.get(account_address, None)
             if account_data is not None:
-                balance, nonce = account_data
-                return nonce
-        return 0
+                balance = account_data.get("balance", 0)
+                nonce = account_data.get("nonce", 0)
+                return balance, nonce
+        return 0, 0
     
     def set_nonce_for_account(self, account_address, nonce):
         contract_address = "6163636f756e7473"
         accounts_state = self.fetch_contract_state(contract_address)
         if accounts_state is not None:
             if account_address in accounts_state:
-                accounts_state[account_address][1] = nonce
+                accounts_state[account_address]["nonce"] = nonce
             else:
-                accounts_state[account_address] = [0, nonce]
+                accounts_state[account_address] = {"balance": 0, "nonce": nonce}
             self.store_contract_state(contract_address, accounts_state)
 
     def store_contract_state(self, contract_address, state_data):
