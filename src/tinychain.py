@@ -122,7 +122,10 @@ class Forger:
         else:
             transactions_to_forge = self.transactionpool.get_transactions()
 
-        valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]  # todo: check if transaction.nonce = previous nonce + 1. update! a new nonce calculation maybe needed
+        if is_genesis is False:
+            valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
+        else:
+            valid_transactions_to_forge = transactions_to_forge
 
         # Get the previous block for validation
         if is_genesis is False:
