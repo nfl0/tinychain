@@ -254,9 +254,9 @@ class Forger:
                 del self.in_memory_block_headers[block.header.block_hash]
                 return False
         else:
-            self.storage_engine.store_state(block.header.state_root, new_state)
-            self.storage_engine.store_block_header(block_header)
             self.storage_engine.store_block(block)
+            self.storage_engine.store_block_header(block_header)
+            self.storage_engine.store_state(block.header.state_root, new_state)
             return True
 
     async def broadcast_block_header(self, block_header):  # P02ef
