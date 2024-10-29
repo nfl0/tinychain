@@ -355,6 +355,10 @@ class StorageEngine:
 
     def store_block(self, block):
         try:
+            if block.header.state_root is None:
+                logging.error("Block storage skipped: 'NoneType' object has no attribute 'state_root'")
+                return
+            
             for transaction in block.transactions:
                 transaction.confirmed = block.header.height
                 self.store_transaction(transaction)
