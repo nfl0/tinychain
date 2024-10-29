@@ -1,27 +1,12 @@
 import ecdsa
 import pickle
 import os
-import hashlib
-import hmac
-import binascii
-import mnemonic
 
 WALLET_PATH = './wallet/'
 
 class Wallet:
-    def __init__(self):
-        if not os.path.exists(os.path.join(WALLET_PATH, "wallet.dat")):
-            self.initialize_wallet()
-
     def generate_keypair(self, filename):
         private_key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
-        with open(os.path.join(WALLET_PATH, filename), "wb") as file:
-            pickle.dump(private_key, file)
-        return True
-
-    def generate_keypair_from_mnemonic(self, mnemonic_seed, filename):
-        seed = mnemonic.Mnemonic.to_seed(mnemonic_seed)
-        private_key = ecdsa.SigningKey.from_string(seed[:32], curve=ecdsa.SECP256k1)
         with open(os.path.join(WALLET_PATH, filename), "wb") as file:
             pickle.dump(private_key, file)
         return True
@@ -47,12 +32,6 @@ class Wallet:
             return public_key.verify(bytes.fromhex(signature), message)
         except ecdsa.BadSignatureError:
             return False
-
-    def initialize_wallet(self):
-        mnemonic_seed = input("Enter a mnemonic seed to initialize the wallet: ")
-        self.generate_keypair_from_mnemonic(mnemonic_seed, "wallet.dat")
-        print("New wallet generated! Please fund it with some coins.")
-        print("Wallet address:", self.get_address())
 
 os.makedirs(WALLET_PATH, exist_ok=True)
 if not os.path.exists(os.path.join(WALLET_PATH, "wallet.dat")):

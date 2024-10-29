@@ -599,9 +599,6 @@ if __name__ == '__main__':
     site = web.TCPSite(app_runner, host='0.0.0.0', port=HTTP_PORT)
     loop.run_until_complete(site.start())
 
-    if not wallet.is_initialized():
-        wallet.initialize_wallet()
-
     storage_engine.open_databases()
 
     try:
