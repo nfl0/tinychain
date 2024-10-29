@@ -299,11 +299,11 @@ def genesis_procedure():
         Transaction(genesis_addresses[1], staking_contract_address, 500*TINYCOIN, 90, 0, "genesis_signature_1", "stake"),
         Transaction("genesis", genesis_addresses[2], 1000*TINYCOIN, 80, 2, "consensus", ""),
         Transaction(genesis_addresses[2], staking_contract_address, 500*TINYCOIN, 70, 0, "genesis_signature_2", "stake"),
-        Transaction("genesis", genesis_addresses[0], 1000*TINYCOIN, 60, 3, "consensus", ""),
+        Transaction("genesis", genesis_addresses[3], 1000*TINYCOIN, 60, 3, "consensus", ""),
         Transaction(genesis_addresses[3], staking_contract_address, 500*TINYCOIN, 50, 0, "genesis_signature_3", "stake"),
-        Transaction("genesis", genesis_addresses[1], 1000*TINYCOIN, 40, 4, "consensus", ""),
+        Transaction("genesis", genesis_addresses[4], 1000*TINYCOIN, 40, 4, "consensus", ""),
         Transaction(genesis_addresses[4], staking_contract_address, 500*TINYCOIN, 30, 0, "genesis_signature_4", "stake"),
-        Transaction("genesis", genesis_addresses[2], 1000*TINYCOIN, 20, 5, "consensus", ""),
+        Transaction("genesis", genesis_addresses[5], 1000*TINYCOIN, 20, 5, "consensus", ""),
         Transaction(genesis_addresses[5], staking_contract_address, 500*TINYCOIN, 10, 0, "genesis_signature_5", "stake")
     ]
     # loop through the genesis transactions and add to transaction pool
