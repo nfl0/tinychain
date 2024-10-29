@@ -22,7 +22,7 @@ class ValidationEngine:
         if transaction.fee <= 0:
             return False
 
-        expected_nonce = self.storage_engine.get_nonce_for_account(transaction.sender)
+        _, expected_nonce = self.storage_engine.get_nonce_for_account(transaction.sender)
         if transaction.nonce != expected_nonce:
             return False
 
