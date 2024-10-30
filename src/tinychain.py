@@ -13,6 +13,7 @@ from validation_engine import ValidationEngine
 from vm import TinyVMEngine
 from wallet import Wallet
 from parameters import HTTP_PORT, MAX_TX_POOL, PEER_URIS
+from peer_communication import broadcast_block_header, receive_block_header, broadcast_transaction
 
 TINYCOIN = 1000000000000000000
 TINYCHAIN_UNIT = 'tatoshi'
@@ -215,7 +216,7 @@ class Forger:
             self.in_memory_blocks[block.header.block_hash] = block
             self.in_memory_block_headers[block.header.block_hash] = block_header
 
-            self.broadcast_block_header(block_header)
+            broadcast_block_header(block_header)
 
             if self.has_enough_signatures(block_header):
 
@@ -233,18 +234,6 @@ class Forger:
             self.storage_engine.store_block_header(block_header)
             self.storage_engine.store_state(block.header.state_root, new_state)
             return True
-
-    async def broadcast_block_header(self, block_header):
-        for peer_uri in PEER_URIS:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(f'http://{peer_uri}/receive_block', json={'block_header': block_header.to_dict()}) as response:
-                        if response.status == 200:
-                            logging.info(f"Block header broadcasted to peer {peer_uri}")
-                        else:
-                            logging.error(f"Failed to broadcast block header to peer {peer_uri}")
-            except Exception as e:
-                logging.error(f"Error broadcasting block header to peer {peer_uri}: {e}")
 
     def has_enough_signatures(self, block_header):  # P66ad
         # Logic to check if 2/3 validators have signed
@@ -490,19 +479,6 @@ validation_engine = ValidationEngine(storage_engine)
 forger = Forger(transactionpool, storage_engine, validation_engine, wallet)
 
 
-async def broadcast_transaction(transaction, sender_uri):
-    for peer_uri in PEER_URIS:
-        if peer_uri != sender_uri:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(f'http://{peer_uri}/send_transaction', json={'transaction': transaction.to_dict()}) as response:
-                        if response.status == 200:
-                            logging.info(f"Transaction broadcasted to peer {peer_uri}")
-                        else:
-                            logging.error(f"Failed to broadcast transaction to peer {peer_uri}")
-            except Exception as e:
-                logging.error(f"Error broadcasting transaction to peer {peer_uri}: {e}")
-
 async def send_transaction(request):
     data = await request.json()
     if 'transaction' in data:
@@ -549,33 +525,6 @@ def find_proposer_signature(block_header):
         if signature.validator_address == block_header.proposer:
             return signature
     return None
-
-async def receive_block_header(request):
-    data = await request.json()
-    block_header_data = data.get('block_header')
-    if not block_header_data:
-        return web.json_response({'error': 'Invalid block header data'}, status=400)
-
-    block_header = BlockHeader.from_dict(block_header_data)
-
-    # Verify the validity of the block header
-    if not validation_engine.validate_block_header(block_header, storage_engine.fetch_last_block_header()):
-        return web.json_response({'error': 'Invalid block header'}, status=400)
-
-    # Verify the identity of the proposer through the included signature
-    proposer_signature = find_proposer_signature(block_header)
-    if proposer_signature is None or not Wallet.verify_signature(block_header.block_hash, proposer_signature.signature_data, proposer_signature.validator_address):
-        return web.json_response({'error': 'Invalid proposer signature'}, status=400)
-
-    # Check if a block header with the same hash already exists in memory
-    if block_header.block_hash in forger.in_memory_block_headers:
-        existing_block_header = forger.in_memory_block_headers[block_header.block_hash]
-        existing_block_header.append_signatures(block_header.signatures)
-    else:
-        # Submit the received block header to the forger for replay
-        forger.forge_new_block(replay=True, block_header=block_header)
-
-    return web.json_response({'message': 'Block header received and processed'})
 
 app.router.add_post('/toggle_production', toggle_production)
 app.router.add_post('/send_transaction', send_transaction)
