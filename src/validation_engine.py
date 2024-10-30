@@ -18,6 +18,7 @@ class ValidationEngine:
         return bool(re.match(r'^[0-9a-fA-F]+$', block_hash))
 
     def validate_transaction(self, transaction):
+
         if transaction.fee <= 0:
             return False
 
