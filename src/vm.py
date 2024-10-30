@@ -76,17 +76,18 @@ class TinyVMEngine:
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
-            contract_state = {sender: 6000 * tinycoin}  # Genesis account initial balance
+            contract_state = {sender: {"balance": 6000 * tinycoin, "nonce": 0}}  # Genesis account initial balance
 
         if operation == "credit":
-            contract_state[sender] = contract_state.get(sender, 0) + amount
+            contract_state[sender]["balance"] = contract_state.get(sender, {"balance": 0, "nonce": 0})["balance"] + amount
         elif operation == "transfer":
-            sender_balance = contract_state.get(sender, 0)
-            receiver_balance = contract_state.get(receiver, 0)
+            sender_balance = contract_state.get(sender, {"balance": 0, "nonce": 0})["balance"]
+            receiver_balance = contract_state.get(receiver, {"balance": 0, "nonce": 0})["balance"]
 
             if sender_balance >= amount:
-                contract_state[sender] = sender_balance - amount
-                contract_state[receiver] = receiver_balance + amount
+                contract_state[sender]["balance"] = sender_balance - amount
+                contract_state[receiver]["balance"] = receiver_balance + amount
+                contract_state[sender]["nonce"] += 1
             else:
                 logging.info(f"TinyVM: Insufficient balance for sender: {sender}")
                 return None  # Transaction failed
