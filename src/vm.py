@@ -16,7 +16,7 @@ class TinyVMEngine:
         self.storage_contract_address = "73746f72616765"  # 'storage' in hex
 
     def exec(self, transactions, proposer):
-        accounts_contract_state = self.current_state.get(self.accounts_contract_address, {})
+        accounts_contract_state = self.current_state.get(self.accounts_contract_address, {"genesis": {"balance": 10000 * tinycoin, "nonce": 0}})
         staking_contract_state = self.current_state.get(self.staking_contract_address, {})
 
         summary = {"success": 0, "failed": 0}
@@ -75,8 +75,8 @@ class TinyVMEngine:
         return self.execute_accounts_contract(accounts_state, sender, receiver, amount, "transfer") is not None
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
-        if contract_state is None:
-            contract_state = {sender: {"balance": 10000 * tinycoin, "nonce": 0}}  # Genesis account initial balance
+        #if contract_state is {}:
+        #    contract_state = {sender: {"balance": 10000 * tinycoin, "nonce": 0}}  # Genesis account initial balance
 
         if operation == "credit":
             contract_state[sender]["balance"] = contract_state.get(sender, {"balance": 0, "nonce": 0})["balance"] + amount
