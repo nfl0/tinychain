@@ -16,7 +16,7 @@ class TinyVMEngine:
         self.storage_contract_address = "73746f72616765"  # 'storage' in hex
 
     def exec(self, transactions, proposer):
-        accounts_contract_state = self.current_state.get(self.accounts_contract_address, {"genesis": {"balance": 10000 * tinycoin, "nonce": 0}})
+        accounts_contract_state = self.current_state.get(self.accounts_contract_address, {"genesis": {"balance": 60000 * tinycoin, "nonce": 0}})
         staking_contract_state = self.current_state.get(self.staking_contract_address, {})
 
         summary = {"success": 0, "failed": 0}
@@ -86,6 +86,9 @@ class TinyVMEngine:
 
             if sender_balance >= amount:
                 contract_state[sender]["balance"] = sender_balance - amount
+                if receiver not in contract_state:
+                    logging.info(f"TinyVM: Receiver {receiver} not found in contract state. Adding receiver to contract state.")
+                    contract_state[receiver] = {"balance": 0, "nonce": 0}
                 contract_state[receiver]["balance"] = receiver_balance + amount
                 contract_state[sender]["nonce"] += 1
             else:
