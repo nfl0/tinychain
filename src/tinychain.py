@@ -1,4 +1,3 @@
-from aiohttp import web
 import asyncio
 import logging
 import plyvel
@@ -7,18 +6,16 @@ from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 import blake3
 import time
+from aiohttp import web
 from block import BlockHeader, Block, Signature
 from transaction import Transaction, transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
 from wallet import Wallet
-from parameters import HTTP_PORT, MAX_TX_POOL, PEER_URIS # todo: implement MAX_TX_BLOCK
+from parameters import HTTP_PORT, MAX_TX_POOL, PEER_URIS
 
 TINYCOIN = 1000000000000000000
 TINYCHAIN_UNIT = 'tatoshi'
-
-
-PEER_URIS = '127.0.0.1:5010'
 
 app = web.Application()
     
@@ -26,6 +23,7 @@ class TransactionPool:
     def __init__(self, max_size):
         self.transactions = {}
         self.max_size = max_size
+
     def add_transaction(self, transaction):
         if len(self.transactions) >= self.max_size:
             raise ValueError("Transaction pool is full")
@@ -55,7 +53,6 @@ class Forger:
 
         self.in_memory_blocks = {}  # P7e15
         self.in_memory_block_headers = {}  # P7e15
-
         self.current_proposer_index = 0  # Initialize the current proposer index
 
     @staticmethod
@@ -81,11 +78,10 @@ class Forger:
                 raise TypeError("Unsupported data type in transaction_hashes")
             
         if isinstance(transaction_hashes[0], str):
-            # If it's a string, encode it as bytes using UTF-8
             transaction_hashes[0] = transaction_hashes[0].encode('utf-8')
 
         return blake3.blake3(transaction_hashes[0]).hexdigest()
-    
+
     def toggle_production(self):
         self.production_enabled = not self.production_enabled
 
@@ -109,12 +105,10 @@ class Forger:
 
         transactions_to_forge = []
 
-        if replay is True:
+        if replay:
             for transaction_hash in block_header.transaction_hashes:
-                # Get the transaction from the transaction pool by its hash
                 transaction = self.transactionpool.get_transaction_by_hash(transaction_hash)
                 if transaction is not None:
-                    # Append the transaction to the transactions_to_forge array
                     transactions_to_forge.append(transaction)
                 else:
                     logging.info(f"Transaction {transaction_hash} not found in pool, requesting transaction from peers...")
@@ -122,7 +116,7 @@ class Forger:
         else:
             transactions_to_forge = self.transactionpool.get_transactions()
 
-        if is_genesis is False:
+        if not is_genesis:
             valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
         else:
             valid_transactions_to_forge = transactions_to_forge
@@ -136,24 +130,18 @@ class Forger:
         else:
             height = 0
             current_state = {}
-        
+
         tvm_engine = TinyVMEngine(current_state)
 
-        if replay is False:
-            if is_genesis is False:
+        if not replay:
+            if not is_genesis:
                 ### NEW BLOCK PROPOSAL CASE ###
-                # set proposer address
                 self.proposer = self.wallet.get_address()
-                # generate timestamp
                 timestamp = int(time.time())
-                # generate state root
                 state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, self.proposer)
-                # generate merkle root
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in valid_transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
-                # generate block hash
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
-                # sign the block
                 signature = self.sign(block_hash)
                 validator_index = self.get_validator_index(self.proposer)
                 signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
@@ -161,15 +149,11 @@ class Forger:
                 ### GENESIS BLOCK CASE ###
                 self.proposer = "genesis"
                 timestamp = int(19191919)
-                # generate state root
                 state_root, new_state = tvm_engine.exec(transactions_to_forge, self.proposer)
-                # generate merkle root
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
-                # generate block hash
                 previous_block_hash = "00000000"
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
-                # genesis signature
                 signature = "genesis_signature"
                 validator_index = -1
                 signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
@@ -187,12 +171,8 @@ class Forger:
             )
         else:
             ### BLOCK REPLAY CASE ###
-            # execute transactions
             state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, block_header.proposer)
-            # check if state_root matches
             if state_root == block_header.state_root:
-                # check if merkle_root matches
-                # todo: check the merkle root first (cheaper)
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in block_header.transactions]
                 computed_merkle_root = self.compute_merkle_root(transaction_hashes)
                 if computed_merkle_root == block_header.merkle_root:
@@ -226,30 +206,25 @@ class Forger:
                 logging.error("Replay failed for block %s (State root mismatch)", block_header.block_hash)
                 return False
         
-        # todo: validate block_header?
-        if is_genesis is False:
+        if not is_genesis:
             block = Block(block_header, valid_transactions_to_forge)
         else:
             block = Block(block_header, transactions_to_forge)
 
-        if is_genesis is False:
-            self.in_memory_blocks[block.header.block_hash] = block  # P9ad7
-            self.in_memory_block_headers[block.header.block_hash] = block_header  # P9ad7
+        if not is_genesis:
+            self.in_memory_blocks[block.header.block_hash] = block
+            self.in_memory_block_headers[block.header.block_hash] = block_header
 
-            # Broadcast block header to validators and collect signatures (P02ef)
             self.broadcast_block_header(block_header)
 
-            # Check if 2/3 validators have signed
             if self.has_enough_signatures(block_header):
 
-                # Store the finalized block
                 self.storage_engine.store_block(block)
-
                 self.storage_engine.store_block_header(block_header)
                 self.storage_engine.store_state(block.header.state_root, new_state)
                 return True
             else:
-                # Drop the block if not enough signatures
+                # Drop the block if not enough signatures at block_timeout
                 del self.in_memory_blocks[block.header.block_hash]
                 del self.in_memory_block_headers[block.header.block_hash]
                 return False
@@ -259,7 +234,7 @@ class Forger:
             self.storage_engine.store_state(block.header.state_root, new_state)
             return True
 
-    async def broadcast_block_header(self, block_header):  # P02ef
+    async def broadcast_block_header(self, block_header):
         for peer_uri in PEER_URIS:
             try:
                 async with aiohttp.ClientSession() as session:
@@ -290,8 +265,7 @@ def genesis_procedure():
         "ce8958afa7c8ac763308705cda306d21119f5401d08d249b1cdcbd6306faba91c6f31a210c7827a494891d17d357dfa755a6e4ae5dd09ffa3803fbafe58c027c",
         "de280016480735a12e975d4c869808bdee564d544e762020446462261d704d8d4a8cab311c6447e3299108b7317db9d5316057c0c0cf7379dda2cd12c20d7660"
     ]
-    staking_contract_address = "7374616b696e67"  # the word 'staking' in hex
-    # genesis transactions
+    staking_contract_address = "7374616b696e67"
     genesis_transactions = [
         Transaction("genesis", genesis_addresses[0], 10000*TINYCOIN, 120, 0, "consensus", ""),
         Transaction(genesis_addresses[0], staking_contract_address, 1000*TINYCOIN, 110, 0, "genesis_signature_0", "stake"),
@@ -306,11 +280,8 @@ def genesis_procedure():
         Transaction("genesis", genesis_addresses[5], 10000*TINYCOIN, 20, 5, "consensus", ""),
         Transaction(genesis_addresses[5], staking_contract_address, 1000*TINYCOIN, 10, 0, "genesis_signature_5", "stake")
     ]
-    # loop through the genesis transactions and add to transaction pool
     for transaction in genesis_transactions:
         transactionpool.add_transaction(transaction)
-    
-    # call the forge_new_block method
     forger.forge_new_block(False, None, True)
     
 class StorageEngine:
@@ -321,14 +292,13 @@ class StorageEngine:
         self.db_transactions = None
         self.db_states = None
         self.state = []
-        
+
     def open_databases(self):
         try:
             self.db_headers = plyvel.DB('headers.db', create_if_missing=True)
             self.db_blocks = plyvel.DB('blocks.db', create_if_missing=True)
             self.db_transactions = plyvel.DB('transactions.db', create_if_missing=True)
             self.db_states = plyvel.DB('states.db', create_if_missing=True)
-            # if the headers database is empty, call genesis_procedure()
             headers = self.db_headers.iterator()
             if not any(headers):
                 genesis_procedure()
@@ -338,7 +308,7 @@ class StorageEngine:
         except Exception as err:
             logging.error("Failed to open databases: %s", err)
             raise
-            
+
     def close_databases(self):
         try:
             if self.db_headers:
@@ -394,7 +364,7 @@ class StorageEngine:
                 'previous_block_hash': block_header.previous_block_hash,
                 'proposer': block_header.proposer,
                 'signatures': [sig.to_dict() for sig in block_header.signatures],
-                'transaction_hashes': block_header.transaction_hashes # revisit this line
+                'transaction_hashes': block_header.transaction_hashes
             }
 
             self.db_headers.put(str(block_header.height).encode(), json.dumps(block_header_data).encode())
@@ -424,10 +394,10 @@ class StorageEngine:
     def store_state(self, state_root, state):
         try:
             self.db_states.put(state_root.encode(), json.dumps(state).encode())
-            logging.info("State saved: %s", state_root) # saved for when voting period ends and > 2/3 validators have signed
-            logging.info("State being stored: %s", state)  # P58fe
+            logging.info("State saved: %s", state_root)
+            logging.info("State being stored: %s", state)
         except Exception as err:
-            logging.error("Failed to store state: %s", err)        
+            logging.error("Failed to store state: %s", err)
 
     def fetch_balance(self, account_address):
         accounts_state = self.fetch_contract_state("6163636f756e7473")
@@ -440,11 +410,11 @@ class StorageEngine:
     def fetch_block(self, block_hash):
         block_data = self.db_blocks.get(block_hash.encode())
         return json.loads(block_data.decode()) if block_data is not None else None
-    
+
     def fetch_last_block_header(self):
         last_block_header = None
         max_height = -1
-        
+
         if self.db_headers is not None:
             for header_key, header_data in self.db_headers.iterator(reverse=True):
                 block_header = BlockHeader.from_dict(json.loads(header_data.decode()))
@@ -491,18 +461,18 @@ class StorageEngine:
         state_data = self.db_states.get(state_root.encode())
         if state_data is not None:
             state = json.loads(state_data.decode())
-            logging.info("State fetched: %s", state)  # Pa201
+            logging.info("State fetched: %s", state)
             return state
         return None
 
     def fetch_contract_state(self, contract_address):
         if self.fetch_last_block_header() is not None:
-            state_root = self.fetch_last_block_header().state_root  #state root is None at genesis block
+            state_root = self.fetch_last_block_header().state_root
         else:
             state_root = "0"
-        contract_state_data = self.db_states.get(state_root.encode()) # Pdb0d
-        return json.loads(contract_state_data.decode()).get(contract_address) if contract_state_data is not None else None # Pc603
-    
+        contract_state_data = self.db_states.get(state_root.encode())
+        return json.loads(contract_state_data.decode()).get(contract_address) if contract_state_data is not None else None
+
     def close(self):
         self.close_databases()
 
@@ -512,7 +482,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Create instances of components
 wallet = Wallet()
 if not wallet.is_initialized():
-    print("Wallet is not initialized. Please run wallet_generator.py to generate a wallet.")
+    logging.info("Wallet is not initialized. Please run wallet_generator.py to generate a wallet.")
     exit()
 transactionpool = TransactionPool(max_size=MAX_TX_POOL)
 storage_engine = StorageEngine(transactionpool)
@@ -612,7 +582,6 @@ app.router.add_post('/send_transaction', send_transaction)
 app.router.add_get('/get_block/{block_hash}', get_block_by_hash)
 app.router.add_get('/transactions/{transaction_hash}', get_transaction_by_hash)
 app.router.add_get('/get_nonce/{account_address}', get_nonce)
-
 app.router.add_post('/receive_block', receive_block_header)
 
 async def cleanup(app):
@@ -626,7 +595,7 @@ if __name__ == '__main__':
 
     app_runner = web.AppRunner(app)
     loop.run_until_complete(app_runner.setup())
-    
+
     site = web.TCPSite(app_runner, host='0.0.0.0', port=HTTP_PORT)
     loop.run_until_complete(site.start())
 
