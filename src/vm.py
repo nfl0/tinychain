@@ -75,6 +75,9 @@ class TinyVMEngine:
         return self.execute_accounts_contract(accounts_state, sender, receiver, amount, "transfer") is not None
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
+        #if contract_state is {}:
+        #    contract_state = {sender: {"balance": 10000 * tinycoin, "nonce": 0}}  # Genesis account initial balance
+
         if operation == "credit":
             contract_state[sender]["balance"] = contract_state.get(sender, {"balance": 0, "nonce": 0})["balance"] + amount
         elif operation == "transfer":
