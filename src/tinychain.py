@@ -425,6 +425,7 @@ class StorageEngine:
         try:
             self.db_states.put(state_root.encode(), json.dumps(state).encode())
             logging.info("State saved: %s", state_root) # saved for when voting period ends and > 2/3 validators have signed
+            logging.info("State being stored: %s", state)  # P58fe
         except Exception as err:
             logging.error("Failed to store state: %s", err)        
 
@@ -486,7 +487,11 @@ class StorageEngine:
 
     def fetch_state(self, state_root):
         state_data = self.db_states.get(state_root.encode())
-        return json.loads(state_data.decode()) if state_data is not None else None
+        if state_data is not None:
+            state = json.loads(state_data.decode())
+            logging.info("State fetched: %s", state)  # Pa201
+            return state
+        return None
 
     def fetch_contract_state(self, contract_address):
         if self.fetch_last_block_header() is not None:
