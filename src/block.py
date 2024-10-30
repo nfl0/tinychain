@@ -1,4 +1,5 @@
 from transaction import Transaction
+import logging
 
 block_header_schema = {
     'type': 'object',
@@ -37,8 +38,6 @@ class Signature:
 
     @classmethod
     def from_dict(cls, signature_data):
-        if isinstance(signature_data, Signature):
-            return signature_data
         return cls(
             signature_data['validator_address'],
             signature_data['timestamp'],
@@ -68,7 +67,7 @@ class BlockHeader:
 
     @classmethod
     def from_dict(cls, header_data):
-        block_header = cls(
+        return cls(
             header_data['block_hash'],
             header_data['height'],
             header_data['timestamp'],
@@ -79,7 +78,6 @@ class BlockHeader:
             header_data['signatures'],
             header_data['transaction_hashes']
         )
-        return block_header
 
     def to_dict(self):
         return {
@@ -123,7 +121,5 @@ class Block:
     @classmethod
     def from_dict(cls, block_data):
         header = BlockHeader.from_dict(block_data['header'])
-
         transactions = [Transaction(**t) for t in block_data.get('transactions', [])]
-
         return cls(header, transactions)
