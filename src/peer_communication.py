@@ -5,7 +5,7 @@ from block import BlockHeader, Signature
 from wallet import Wallet
 from parameters import PEER_URIS
 
-async def broadcast_block_header(block_header):
+def broadcast_block_header(block_header):
     for peer_uri in PEER_URIS:
         try:
             async with aiohttp.ClientSession() as session:
@@ -41,7 +41,7 @@ async def receive_block_header(request):
 
     return web.json_response({'message': 'Block header received and processed'})
 
-async def broadcast_transaction(transaction, sender_uri):
+def broadcast_transaction(transaction, sender_uri):
     for peer_uri in PEER_URIS:
         if peer_uri != sender_uri:
             try:
