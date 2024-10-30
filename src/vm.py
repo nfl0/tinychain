@@ -16,8 +16,8 @@ class TinyVMEngine:
         self.storage_contract_address = "73746f72616765"  # 'storage' in hex
 
     def exec(self, transactions, proposer):
-        accounts_contract_state = self.current_state.get(self.accounts_contract_address)
-        staking_contract_state = self.current_state.get(self.staking_contract_address)
+        accounts_contract_state = self.current_state.get(self.accounts_contract_address, {})
+        staking_contract_state = self.current_state.get(self.staking_contract_address, {})
 
         summary = {"success": 0, "failed": 0}
 
