@@ -432,8 +432,10 @@ class StorageEngine:
     def fetch_balance(self, account_address):
         accounts_state = self.fetch_contract_state("6163636f756e7473")
         if accounts_state is not None:
-            return accounts_state.get(account_address, None)
-        return None
+            account_data = accounts_state.get(account_address, None)
+            if account_data is not None:
+                return account_data.get("balance", 0), account_data.get("nonce", 0)
+        return None, None
 
     def fetch_block(self, block_hash):
         block_data = self.db_blocks.get(block_hash.encode())
