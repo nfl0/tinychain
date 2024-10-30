@@ -76,7 +76,7 @@ class TinyVMEngine:
 
     def execute_accounts_contract(self, contract_state, sender, receiver, amount, operation):
         if contract_state is None:
-            contract_state = {sender: {"balance": 6000 * tinycoin, "nonce": 0}}  # Genesis account initial balance
+            contract_state = {sender: {"balance": 10000 * tinycoin, "nonce": 0}}  # Genesis account initial balance
 
         if operation == "credit":
             contract_state[sender]["balance"] = contract_state.get(sender, {"balance": 0, "nonce": 0})["balance"] + amount
@@ -102,8 +102,14 @@ class TinyVMEngine:
         staked_balance = contract_state.get(sender, {"balance": 0, "status": "active", "index": len(contract_state)})
 
         if is_stake:
-            staked_balance["balance"] += amount
-            staked_balance["status"] = "active"
+            sender_balance = accounts_state.get(sender, {"balance": 0, "nonce": 0})["balance"]
+            if sender_balance >= amount:
+                staked_balance["balance"] += amount
+                staked_balance["status"] = "active"
+                accounts_state[sender]["balance"] = sender_balance - amount
+            else:
+                logging.info(f"TinyVM: Insufficient balance for staking by {sender}.")
+                return contract_state, accounts_state  # No change
         else:
             if staked_balance["balance"] > 0:
                 released_balance = staked_balance["balance"]
