@@ -24,14 +24,12 @@ class Transaction:
         self.signature = signature
         self.memo = memo
 
-        self.message = f"{self.sender}-{self.receiver}-{self.amount}-{self.memo}"
         self.transaction_hash = self.generate_transaction_hash()
         self.confirmed = None
 
     def generate_transaction_hash(self):
-        values = [str(self.sender), str(self.receiver), str(self.amount), str(self.fee), str(self.nonce), str(self.signature)]
         hasher = blake3()
-        for value in values:
+        for value in [self.sender, self.receiver, str(self.amount), str(self.fee), str(self.nonce), self.signature]:
             hasher.update(value.encode())
         return hasher.hexdigest()
 
