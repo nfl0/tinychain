@@ -115,6 +115,9 @@ class BlockHeader:
                     self.signatures.remove(existing_signature)
                     self.signatures.append(new_signature)
 
+    def count_signatures(self):
+        return len(self.signatures)
+
 class Block:
     def __init__(self, header, transactions):
         self.header = header

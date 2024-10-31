@@ -12,7 +12,7 @@ from transaction import Transaction, transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
 from wallet import Wallet
-from parameters import HTTP_PORT, MAX_TX_POOL, PEER_URIS
+from parameters import HTTP_PORT, MAX_TX_POOL, PEER_URIS, BLOCK_TIMEOUT
 from peer_communication import broadcast_block_header, receive_block_header, broadcast_transaction
 
 TINYCOIN = 1000000000000000000
@@ -244,6 +244,29 @@ class Forger:
         if staking_contract_state and validator_address in staking_contract_state:
             return staking_contract_state[validator_address]['index']
         return -1
+
+    async def check_round_robin_result(self):
+        while True:
+            await asyncio.sleep(BLOCK_TIMEOUT)
+            previous_block_header = self.storage_engine.fetch_last_block_header()
+            if previous_block_header:
+                current_time = int(time.time())
+                if current_time >= previous_block_header.timestamp + BLOCK_TIMEOUT:
+                    proposer = self.select_proposer()
+                    if proposer == self.wallet.get_address():
+                        self.forge_new_block(replay=False)
+                    else:
+                        await self.wait_for_new_block_headers()
+
+    async def wait_for_new_block_headers(self):
+        while True:
+            await asyncio.sleep(1)
+            previous_block_header = self.storage_engine.fetch_last_block_header()
+            if previous_block_header:
+                current_time = int(time.time())
+                if current_time >= previous_block_header.timestamp + BLOCK_TIMEOUT:
+                    self.forge_new_block(replay=False)
+                    break
 
 def genesis_procedure():
     genesis_addresses = [
@@ -549,6 +572,8 @@ if __name__ == '__main__':
     loop.run_until_complete(site.start())
 
     storage_engine.open_databases()
+
+    loop.create_task(forger.check_round_robin_result())
 
     try:
         loop.run_forever()
