@@ -225,7 +225,7 @@ class Forger:
 
             broadcast_block_header(block_header)
 
-            if self.has_enough_signatures(block_header):
+            if block.header.has_enough_signatures(required_signatures=2/3 * len(self.fetch_current_validator_set())):
 
                 self.storage_engine.store_block(block)
                 self.storage_engine.store_block_header(block_header)
@@ -283,7 +283,7 @@ class Forger:
             previous_block_header = self.storage_engine.fetch_last_block_header()
             if previous_block_header:
                 current_time = int(time.time())
-                if current_time >= previous_block_header.timestamp + BLOCK_TIMEOUT:
+                if current_time >= previous_block_header.timestamp + ROUND_TIMEOUT:
                     self.forge_new_block(replay=False)
                     break
 

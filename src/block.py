@@ -118,6 +118,9 @@ class BlockHeader:
     def count_signatures(self):
         return len(self.signatures)
 
+    def has_enough_signatures(self, required_signatures):
+        return len(self.signatures) >= required_signatures
+
 class Block:
     def __init__(self, header, transactions):
         self.header = header
@@ -130,3 +133,11 @@ class Block:
         transactions = [Transaction(**t) for t in block_data.get('transactions', [])]
 
         return cls(header, transactions)
+
+    def store(self, storage_engine, new_state):
+        if self.header.has_enough_signatures(required_signatures=2/3 * len(storage_engine.fetch_current_validator_set())):
+            storage_engine.store_block(self)
+            storage_engine.store_block_header(self.header)
+            storage_engine.store_state(self.header.state_root, new_state)
+            return True
+        return False
