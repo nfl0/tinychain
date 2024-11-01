@@ -12,7 +12,7 @@ from transaction import Transaction, transaction_schema
 from validation_engine import ValidationEngine
 from vm import TinyVMEngine
 from wallet import Wallet
-from parameters import HTTP_PORT, MAX_TX_POOL, PEER_URIS
+from parameters import HTTP_PORT, MAX_TX_POOL, ROUND_TIMEOUT
 from peer_communication import broadcast_block_header, receive_block_header, broadcast_transaction
 
 TINYCOIN = 1000000000000000000
@@ -99,6 +99,13 @@ class Forger:
             self.current_proposer_index = (self.current_proposer_index + 1) % len(validator_set)
             return proposer
         return None
+
+    def validate_block(self, block_header):
+        if not self.validation_engine.validate_block_header_signatures(block_header):
+            return False
+        if not self.validation_engine.validate_enough_signatures(block_header, required_signatures=2/3 * len(self.fetch_current_validator_set())):
+            return False
+        return True
 
     def forge_new_block(self, replay=True, block_header=None, is_genesis=False):
         if not self.production_enabled:
@@ -245,6 +252,41 @@ class Forger:
             return staking_contract_state[validator_address]['index']
         return -1
 
+    async def check_round_robin_result(self):
+        while True:
+            print ("******************")
+            print ("ROUND RESULT CHECK")
+            print ("******************")
+            await asyncio.sleep(ROUND_TIMEOUT)
+            previous_block_header = self.storage_engine.fetch_last_block_header()
+            if previous_block_header:
+                print ("******************")
+                print ("previous_block_header is TRUE")
+                print ("******************")
+                current_time = int(time.time())
+                if current_time >= previous_block_header.timestamp + ROUND_TIMEOUT:
+                    proposer = self.select_proposer()
+                    print ("******************")
+                    print ("PROPOSER RESULT: " + proposer)
+                    print ("******************")
+                    if proposer == self.wallet.get_address():
+                        print ("******************")
+                        print ("forge_new_block")
+                        print ("******************")
+                        self.forge_new_block(replay=False)
+                    else:
+                        await self.wait_for_new_block_headers()
+
+    async def wait_for_new_block_headers(self):
+        while True:
+            await asyncio.sleep(1)
+            previous_block_header = self.storage_engine.fetch_last_block_header()
+            if previous_block_header:
+                current_time = int(time.time())
+                if current_time >= previous_block_header.timestamp + BLOCK_TIMEOUT:
+                    self.forge_new_block(replay=False)
+                    break
+
 def genesis_procedure():
     genesis_addresses = [
         "7ff08d4ddd1be1305e77db4064bb71f2c0872599334db03fc36d8cab3fb349c4e1dfb6262bd3e118f37aa8d19827f0aa56bf9052bb9c5b6e16e0679706124e38",
@@ -384,7 +426,6 @@ class StorageEngine:
         try:
             self.db_states.put(state_root.encode(), json.dumps(state).encode())
             logging.info("State saved: %s", state_root)
-            logging.info("State being stored: %s", state)
         except Exception as err:
             logging.error("Failed to store state: %s", err)
 
@@ -450,7 +491,6 @@ class StorageEngine:
         state_data = self.db_states.get(state_root.encode())
         if state_data is not None:
             state = json.loads(state_data.decode())
-            logging.info("State fetched: %s", state)
             return state
         return None
 
@@ -549,6 +589,8 @@ if __name__ == '__main__':
     loop.run_until_complete(site.start())
 
     storage_engine.open_databases()
+
+    loop.create_task(forger.check_round_robin_result())
 
     try:
         loop.run_forever()

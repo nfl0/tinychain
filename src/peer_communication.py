@@ -7,7 +7,7 @@ from parameters import PEER_URIS
 def broadcast_block_header(block_header):
     for peer_uri in PEER_URIS:
         try:
-            response = requests.post(f'http://{peer_uri}/receive_block', json={'block_header': block_header.to_dict()})
+            response = requests.post(f'http://{peer_uri}/receive_block', json={'block_header': block_header.to_dict()}, timeout=0.3)
             if response.status_code == 200:
                 logging.info(f"Block header broadcasted to peer {peer_uri}")
             else:
@@ -46,7 +46,7 @@ def broadcast_transaction(transaction, sender_uri):
     for peer_uri in PEER_URIS:
         if peer_uri != sender_uri:
             try:
-                response = requests.post(f'http://{peer_uri}/send_transaction', json={'transaction': transaction.to_dict()})
+                response = requests.post(f'http://{peer_uri}/send_transaction', json={'transaction': transaction.to_dict()}, timeout=0.3)
                 if response.status_code == 200:
                     logging.info(f"Transaction broadcasted to peer {peer_uri}")
                 else:

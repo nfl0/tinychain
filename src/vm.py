@@ -55,7 +55,6 @@ class TinyVMEngine:
 
         # Log summary result
         logging.info(f"TinyVM: Execution Summary - Success: {summary['success']}, Failed: {summary['failed']}")
-        logging.info(f"TinyVM: State after execution: {state}")
 
         return state_root, state
 
