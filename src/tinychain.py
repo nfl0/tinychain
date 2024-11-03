@@ -50,8 +50,6 @@ class Forger:
         self.validator = self.proposer = self.wallet.get_address()
         self.sign = self.wallet.sign_message
 
-        self.production_enabled = True
-
         self.in_memory_blocks = {}  # P7e15
         self.in_memory_block_headers = {}  # P7e15
         self.current_proposer_index = 0  # Initialize the current proposer index
@@ -83,9 +81,6 @@ class Forger:
 
         return blake3.blake3(transaction_hashes[0]).hexdigest()
 
-    def toggle_production(self):
-        self.production_enabled = not self.production_enabled
-
     def fetch_current_validator_set(self):
         staking_contract_state = self.storage_engine.fetch_contract_state("7374616b696e67")
         if staking_contract_state:
@@ -108,28 +103,14 @@ class Forger:
         return True
 
     def forge_new_block(self, replay=True, block_header=None, is_genesis=False):
-        if not self.production_enabled:
-            return "Forging is disabled"
 
-        transactions_to_forge = []
-
-        if replay:
-            for transaction_hash in block_header.transaction_hashes:
-                transaction = self.transactionpool.get_transaction_by_hash(transaction_hash)
-                if transaction is not None:
-                    transactions_to_forge.append(transaction)
-                else:
-                    logging.info(f"Transaction {transaction_hash} not found in pool, requesting transaction from peers...")
-                    # todo: request transaction from connected peers (or the block producer?)
-        else:
-            transactions_to_forge = self.transactionpool.get_transactions()
+        transactions_to_forge = self.get_transactions_to_forge(replay, block_header)
 
         if not is_genesis:
             valid_transactions_to_forge = [t for t in transactions_to_forge if self.validation_engine.validate_transaction(t)]
         else:
             valid_transactions_to_forge = transactions_to_forge
 
-        # Get the previous block for validation
         if is_genesis is False:
             previous_block_header = self.storage_engine.fetch_last_block_header()
             previous_block_hash = previous_block_header.block_hash
@@ -143,45 +124,31 @@ class Forger:
 
         if not replay:
             if not is_genesis:
-                ### NEW BLOCK PROPOSAL CASE ###
                 self.proposer = self.wallet.get_address()
                 timestamp = int(time.time())
                 state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, self.proposer)
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in valid_transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
-                chain_id = "tinychain"  # Example chain_id
+                chain_id = "tinychain"
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash, chain_id)
                 signature = self.sign(block_hash)
                 validator_index = self.get_validator_index(self.proposer)
                 signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
             else:
-                ### GENESIS BLOCK CASE ###
                 self.proposer = "genesis"
                 timestamp = int(19191919)
                 state_root, new_state = tvm_engine.exec(transactions_to_forge, self.proposer)
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
                 previous_block_hash = "00000000"
-                chain_id = "tinychain"  # Example chain_id
+                chain_id = "tinychain"
                 block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash, chain_id)
                 signature = "genesis_signature"
                 validator_index = -1
                 signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
 
-            block_header = BlockHeader(
-                block_hash,
-                height,
-                timestamp,
-                previous_block_hash,
-                merkle_root,
-                state_root,
-                self.proposer,
-                chain_id,
-                signatures,
-                transaction_hashes
-            )
+            block_header = self.create_block_header(block_hash, height, timestamp, previous_block_hash, merkle_root, state_root, self.proposer, chain_id, signatures, transaction_hashes)
         else:
-            ### BLOCK REPLAY CASE ###
             state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, block_header.proposer)
             if state_root == block_header.state_root:
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in block_header.transactions]
@@ -198,18 +165,7 @@ class Forger:
                         signatures = [Signature.from_dict(sig) for sig in signatures]
                         signatures.append(Signature(self.validator, int(time.time()), signature, validator_index))
 
-                    block_header = BlockHeader(
-                        block_header.block_hash,
-                        block_header.height,
-                        block_header.timestamp,
-                        block_header.previous_block_hash,
-                        block_header.merkle_root,
-                        block_header.state_root,
-                        block_header.proposer,
-                        block_header.chain_id,
-                        signatures,
-                        block_header.transaction_hashes
-                    )
+                    block_header = self.create_block_header(block_header.block_hash, block_header.height, block_header.timestamp, block_header.previous_block_hash, block_header.merkle_root, block_header.state_root, block_header.proposer, block_header.chain_id, signatures, block_header.transaction_hashes)
                     logging.info("Replay successful for block %s", block_header.block_hash)
                 else:
                     logging.error("Replay failed for block %s (Merkle root mismatch)", block_header.block_hash)
@@ -230,24 +186,49 @@ class Forger:
             broadcast_block_header(block_header)
 
             if block.header.has_enough_signatures(required_signatures=2/3 * len(self.fetch_current_validator_set())):
-
-                self.storage_engine.store_block(block)
-                self.storage_engine.store_block_header(block_header)
-                self.storage_engine.store_state(block.header.state_root, new_state)
+                self.store_block(block, new_state)
                 return True
             else:
-                # Drop the block if not enough signatures at block_timeout
                 del self.in_memory_blocks[block.header.block_hash]
                 del self.in_memory_block_headers[block.header.block_hash]
                 return False
         else:
-            self.storage_engine.store_block(block)
-            self.storage_engine.store_block_header(block_header)
-            self.storage_engine.store_state(block.header.state_root, new_state)
+            self.store_block(block, new_state)
             return True
 
+    def get_transactions_to_forge(self, replay, block_header):
+        transactions_to_forge = []
+        if replay:
+            for transaction_hash in block_header.transaction_hashes:
+                transaction = self.transactionpool.get_transaction_by_hash(transaction_hash)
+                if transaction is not None:
+                    transactions_to_forge.append(transaction)
+                else:
+                    logging.info(f"Transaction {transaction_hash} not found in pool, requesting transaction from peers...")
+        else:
+            transactions_to_forge = self.transactionpool.get_transactions()
+        return transactions_to_forge
+
+    def create_block_header(self, block_hash, height, timestamp, previous_block_hash, merkle_root, state_root, proposer, chain_id, signatures, transaction_hashes):
+        return BlockHeader(
+            block_hash,
+            height,
+            timestamp,
+            previous_block_hash,
+            merkle_root,
+            state_root,
+            proposer,
+            chain_id,
+            signatures,
+            transaction_hashes
+        )
+
+    def store_block(self, block, new_state):
+        self.storage_engine.store_block(block)
+        self.storage_engine.store_block_header(block.header)
+        self.storage_engine.store_state(block.header.state_root, new_state)
+
     def has_enough_signatures(self, block_header):  # P66ad
-        # Logic to check if 2/3 validators have signed
         return True
 
     def get_validator_index(self, validator_address):
@@ -555,11 +536,6 @@ async def get_block_by_hash(request):
     if block_data is not None:
         return web.json_response(block_data)
     return web.json_response({'error': 'Block not found'}, status=404)
-
-async def toggle_production(request):
-    forger.toggle_production()
-    production_status = "enabled" if forger.production_enabled else "disabled"
-    return web.json_response({'message': f'Block production {production_status}'})
 
 async def get_nonce(request):
     account_address = request.match_info['account_address']
