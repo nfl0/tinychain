@@ -58,6 +58,7 @@ The `signatures` field in the `BlockHeader` is an array of `Signature` objects. 
 - **Timestamp**: The timestamp of the signature.
 - **SignatureData**: The actual signature data.
 - **ValidatorIndex**: The index of the validator.
+- **ChainID**: The ID of the blockchain.
 
 ## High-Level Diagram
 

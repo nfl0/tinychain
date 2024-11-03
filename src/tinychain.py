@@ -57,8 +57,8 @@ class Forger:
         self.current_proposer_index = 0  # Initialize the current proposer index
 
     @staticmethod
-    def generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash):
-        values = [merkle_root, str(timestamp), str(state_root), previous_block_hash]
+    def generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash, chain_id):
+        values = [merkle_root, str(timestamp), str(state_root), previous_block_hash, chain_id]
         concatenated_string = f"{''.join(values)}".encode()
         return blake3.blake3(concatenated_string).hexdigest()
 
@@ -149,7 +149,8 @@ class Forger:
                 state_root, new_state = tvm_engine.exec(valid_transactions_to_forge, self.proposer)
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in valid_transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
-                block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
+                chain_id = "tinychain"  # Example chain_id
+                block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash, chain_id)
                 signature = self.sign(block_hash)
                 validator_index = self.get_validator_index(self.proposer)
                 signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
@@ -161,7 +162,8 @@ class Forger:
                 transaction_hashes = [t.to_dict()['transaction_hash'] for t in transactions_to_forge]
                 merkle_root = self.compute_merkle_root(transaction_hashes)
                 previous_block_hash = "00000000"
-                block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash)
+                chain_id = "tinychain"  # Example chain_id
+                block_hash = self.generate_block_hash(merkle_root, timestamp, state_root, previous_block_hash, chain_id)
                 signature = "genesis_signature"
                 validator_index = -1
                 signatures = [Signature(self.proposer, timestamp, signature, validator_index)]
@@ -174,6 +176,7 @@ class Forger:
                 merkle_root,
                 state_root,
                 self.proposer,
+                chain_id,
                 signatures,
                 transaction_hashes
             )
@@ -203,6 +206,7 @@ class Forger:
                         block_header.merkle_root,
                         block_header.state_root,
                         block_header.proposer,
+                        block_header.chain_id,
                         signatures,
                         block_header.transaction_hashes
                     )
@@ -374,6 +378,7 @@ class StorageEngine:
                 'state_root': block.header.state_root,
                 'previous_block_hash': block.header.previous_block_hash,
                 'proposer': block.header.proposer,
+                'chain_id': block.header.chain_id,
                 'signatures': [sig.to_dict() for sig in block.header.signatures],
                 'transactions': [transaction.to_dict() for transaction in block.transactions]
             }
@@ -394,6 +399,7 @@ class StorageEngine:
                 'state_root': block_header.state_root,
                 'previous_block_hash': block_header.previous_block_hash,
                 'proposer': block_header.proposer,
+                'chain_id': block_header.chain_id,
                 'signatures': [sig.to_dict() for sig in block_header.signatures],
                 'transaction_hashes': block_header.transaction_hashes
             }

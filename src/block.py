@@ -10,6 +10,7 @@ block_header_schema = {
         'merkle_root': {'type': 'string'},
         'state_root': {'type': 'string'},
         'proposer': {'type': 'string'},
+        'chain_id': {'type': 'string'},
         'signatures': {
             'type': 'array',
             'items': {
@@ -25,7 +26,7 @@ block_header_schema = {
         },
         'transaction_hashes': {'type': 'array', 'items': {'type': 'string'}}
     },
-    'required': ['block_hash', 'height', 'timestamp', 'previous_block_hash', 'state_root', 'proposer', 'signatures', 'transaction_hashes']
+    'required': ['block_hash', 'height', 'timestamp', 'previous_block_hash', 'state_root', 'proposer', 'chain_id', 'signatures', 'transaction_hashes']
 }
 
 class Signature:
@@ -55,7 +56,7 @@ class Signature:
         }
 
 class BlockHeader:
-    def __init__(self, block_hash, height, timestamp, previous_block_hash, merkle_root, state_root, proposer, signatures, transaction_hashes):
+    def __init__(self, block_hash, height, timestamp, previous_block_hash, merkle_root, state_root, proposer, chain_id, signatures, transaction_hashes):
         self.block_hash = block_hash
         self.height = height
         self.timestamp = timestamp
@@ -63,6 +64,7 @@ class BlockHeader:
         self.merkle_root = merkle_root
         self.state_root = state_root
         self.proposer = proposer
+        self.chain_id = chain_id
         self.signatures = [Signature.from_dict(sig) for sig in signatures]
         self.transaction_hashes = transaction_hashes
 
@@ -76,6 +78,7 @@ class BlockHeader:
             header_data['merkle_root'],
             header_data['state_root'],
             header_data['proposer'],
+            header_data['chain_id'],
             header_data['signatures'],
             header_data['transaction_hashes']
         )
@@ -90,6 +93,7 @@ class BlockHeader:
             'merkle_root': self.merkle_root,
             'state_root': self.state_root,
             'proposer': self.proposer,
+            'chain_id': self.chain_id,
             'signatures': [sig.to_dict() for sig in self.signatures],
             'transaction_hashes': self.transaction_hashes
         }

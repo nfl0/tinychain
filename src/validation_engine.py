@@ -85,7 +85,7 @@ class ValidationEngine:
         if not (previous_block_header.timestamp < block.header.timestamp < current_time + time_tolerance):
             return False
 
-        values = [block.header.merkle_root, str(block.header.timestamp), str(block.header.state_root), previous_block_header.block_hash]
+        values = [block.header.merkle_root, str(block.header.timestamp), str(block.header.state_root), previous_block_header.block_hash, block.header.chain_id]
         concatenated_string = ''.join(values).encode()
         computed_hash = blake3(concatenated_string).hexdigest()
         if block.header.block_hash != computed_hash:
