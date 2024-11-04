@@ -103,7 +103,7 @@ class Forger:
         return True
 
     def forge_new_block(self, replay=True, block_header=None, is_genesis=False):
-
+        logging.info("Starting to forge a new block")
         transactions_to_forge = self.get_transactions_to_forge(replay, block_header)
 
         if not is_genesis:
@@ -224,6 +224,7 @@ class Forger:
         )
 
     def store_block(self, block, new_state):
+        logging.info("Storing block with hash: %s", block.header.block_hash)
         self.storage_engine.store_block(block)
         self.storage_engine.store_block_header(block.header)
         self.storage_engine.store_state(block.header.state_root, new_state)
@@ -239,25 +240,25 @@ class Forger:
 
     async def check_round_robin_result(self):
         while True:
-            print ("******************")
-            print ("ROUND RESULT CHECK")
-            print ("******************")
+            logging.info("******************")
+            logging.info("ROUND RESULT CHECK")
+            logging.info("******************")
             await asyncio.sleep(ROUND_TIMEOUT)
             previous_block_header = self.storage_engine.fetch_last_block_header()
             if previous_block_header:
-                print ("******************")
-                print ("previous_block_header is TRUE")
-                print ("******************")
+                logging.info("******************")
+                logging.info("previous_block_header is TRUE")
+                logging.info("******************")
                 current_time = int(time.time())
                 if current_time >= previous_block_header.timestamp + ROUND_TIMEOUT:
                     proposer = self.select_proposer()
-                    print ("******************")
-                    print ("PROPOSER RESULT: " + proposer)
-                    print ("******************")
+                    logging.info("******************")
+                    logging.info("PROPOSER RESULT: " + proposer)
+                    logging.info("******************")
                     if proposer == self.wallet.get_address():
-                        print ("******************")
-                        print ("forge_new_block")
-                        print ("******************")
+                        logging.info("******************")
+                        logging.info("forge_new_block")
+                        logging.info("******************")
                         self.forge_new_block(replay=False)
                     else:
                         await self.wait_for_new_block_headers()
