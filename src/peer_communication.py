@@ -44,7 +44,7 @@ def receive_block_header(request):
         logging.info(f"Appended signatures to existing block header with hash: {block_header.block_hash}")
     else:
         # Submit the received block header to the forger for replay
-        forger.forge_new_block(replay=True, block_header=block_header)
+        forger.replay_block(block_header)
         logging.info(f"Submitted block header with hash: {block_header.block_hash} for replay")
 
     return {'message': 'Block header received and processed'}, 200
