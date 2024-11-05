@@ -187,7 +187,31 @@ class Forger:
             del self.in_memory_block_headers[block.header.block_hash]
             return False
 
-    def forge_genesis_block(self, genesis_timestamp):
+    def commit_genesis_block(self):
+        with open('genesis.json', 'r') as f:
+            genesis_data = json.load(f)
+
+        genesis_addresses = genesis_data['genesis_addresses']
+        staking_contract_address = genesis_data['staking_contract_address']
+        genesis_timestamp = genesis_data['genesis_timestamp']
+
+        genesis_transactions = [
+            Transaction("genesis", genesis_addresses[0], 10000*TINYCOIN, 120, 0, "consensus", ""),
+            Transaction(genesis_addresses[0], staking_contract_address, 1000*TINYCOIN, 110, 0, "genesis_signature_0", "stake"),
+            Transaction("genesis", genesis_addresses[1], 10000*TINYCOIN, 100, 1, "consensus", ""),
+            Transaction(genesis_addresses[1], staking_contract_address, 1000*TINYCOIN, 90, 0, "genesis_signature_1", "stake"),
+            Transaction("genesis", genesis_addresses[2], 10000*TINYCOIN, 80, 2, "consensus", ""),
+            Transaction(genesis_addresses[2], staking_contract_address, 1000*TINYCOIN, 70, 0, "genesis_signature_2", "stake"),
+            Transaction("genesis", genesis_addresses[3], 10000*TINYCOIN, 60, 3, "consensus", ""),
+            Transaction(genesis_addresses[3], staking_contract_address, 1000*TINYCOIN, 50, 0, "genesis_signature_3", "stake"),
+            Transaction("genesis", genesis_addresses[4], 10000*TINYCOIN, 40, 4, "consensus", ""),
+            Transaction(genesis_addresses[4], staking_contract_address, 1000*TINYCOIN, 30, 0, "genesis_signature_4", "stake"),
+            Transaction("genesis", genesis_addresses[5], 10000*TINYCOIN, 20, 5, "consensus", ""),
+            Transaction(genesis_addresses[5], staking_contract_address, 1000*TINYCOIN, 10, 0, "genesis_signature_5", "stake")
+        ]
+        for transaction in genesis_transactions:
+            self.transactionpool.add_transaction(transaction)
+
         logging.info("Starting to forge the genesis block")
         transactions_to_forge = self.get_transactions_to_forge()
 
@@ -292,32 +316,6 @@ class Forger:
                     self.forge_new_block()
                     break
 
-def genesis_procedure():
-    with open('genesis.json', 'r') as f:
-        genesis_data = json.load(f)
-
-    genesis_addresses = genesis_data['genesis_addresses']
-    staking_contract_address = genesis_data['staking_contract_address']
-    genesis_timestamp = genesis_data['genesis_timestamp']
-
-    genesis_transactions = [
-        Transaction("genesis", genesis_addresses[0], 10000*TINYCOIN, 120, 0, "consensus", ""),
-        Transaction(genesis_addresses[0], staking_contract_address, 1000*TINYCOIN, 110, 0, "genesis_signature_0", "stake"),
-        Transaction("genesis", genesis_addresses[1], 10000*TINYCOIN, 100, 1, "consensus", ""),
-        Transaction(genesis_addresses[1], staking_contract_address, 1000*TINYCOIN, 90, 0, "genesis_signature_1", "stake"),
-        Transaction("genesis", genesis_addresses[2], 10000*TINYCOIN, 80, 2, "consensus", ""),
-        Transaction(genesis_addresses[2], staking_contract_address, 1000*TINYCOIN, 70, 0, "genesis_signature_2", "stake"),
-        Transaction("genesis", genesis_addresses[3], 10000*TINYCOIN, 60, 3, "consensus", ""),
-        Transaction(genesis_addresses[3], staking_contract_address, 1000*TINYCOIN, 50, 0, "genesis_signature_3", "stake"),
-        Transaction("genesis", genesis_addresses[4], 10000*TINYCOIN, 40, 4, "consensus", ""),
-        Transaction(genesis_addresses[4], staking_contract_address, 1000*TINYCOIN, 30, 0, "genesis_signature_4", "stake"),
-        Transaction("genesis", genesis_addresses[5], 10000*TINYCOIN, 20, 5, "consensus", ""),
-        Transaction(genesis_addresses[5], staking_contract_address, 1000*TINYCOIN, 10, 0, "genesis_signature_5", "stake")
-    ]
-    for transaction in genesis_transactions:
-        transactionpool.add_transaction(transaction)
-    forger.forge_genesis_block(genesis_timestamp)
-    
 class StorageEngine:
     def __init__(self, transactionpool):
         self.transactionpool = transactionpool
@@ -335,7 +333,7 @@ class StorageEngine:
             self.db_states = plyvel.DB('states.db', create_if_missing=True)
             headers = self.db_headers.iterator()
             if not any(headers):
-                genesis_procedure()
+                forger.commit_genesis_block()
             else:
                 logging.info("Databases already initialized")
 
