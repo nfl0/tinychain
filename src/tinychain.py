@@ -180,7 +180,7 @@ class Forger:
         broadcast_block_header(block_header)
 
         if block.header.has_enough_signatures(required_signatures=2/3 * len(self.fetch_current_validator_set())):
-            self.store_block(block, new_state)
+            self.store_block_procedure(block, new_state)
             return True
         else:
             del self.in_memory_blocks[block.header.block_hash]
@@ -247,7 +247,7 @@ class Forger:
 
         block = Block(block_header, transactions_to_forge)
 
-        self.store_block(block, new_state)
+        self.store_block_procedure(block, new_state)
         return True
 
     def get_transactions_to_forge(self, block_header=None):
@@ -277,7 +277,7 @@ class Forger:
             transaction_hashes
         )
 
-    def store_block(self, block, new_state):
+    def store_block_procedure(self, block, new_state):
         logging.info("Storing block with hash: %s", block.header.block_hash)
         self.storage_engine.store_block(block)
         self.storage_engine.store_block_header(block.header)
