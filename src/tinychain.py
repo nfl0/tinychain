@@ -195,6 +195,16 @@ class Forger:
         staking_contract_address = genesis_data['staking_contract_address']
         genesis_timestamp = genesis_data['genesis_timestamp']
 
+        current_time = int(time.time())
+        if current_time > genesis_timestamp + 3:
+            logging.error("Node has missed the network launch")
+            exit(1)
+        elif current_time < genesis_timestamp - 3:
+            while current_time < genesis_timestamp - 3:
+                logging.info("Waiting for the genesis timestamp...")
+                time.sleep(2)
+                current_time = int(time.time())
+
         genesis_transactions = [
             Transaction("genesis", genesis_addresses[0], 10000*TINYCOIN, 120, 0, "consensus", ""),
             Transaction(genesis_addresses[0], staking_contract_address, 1000*TINYCOIN, 110, 0, "genesis_signature_0", "stake"),
