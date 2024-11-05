@@ -91,8 +91,10 @@ class Forger:
         validator_set = self.fetch_current_validator_set()
         if validator_set:
             proposer = validator_set[self.current_proposer_index]
+            logging.info(f"Selected proposer: {proposer} (index: {self.current_proposer_index})")
             self.current_proposer_index = (self.current_proposer_index + 1) % len(validator_set)
             return proposer
+        logging.error("No validators found in the current validator set")
         return None
 
     def validate_block(self, block_header):
