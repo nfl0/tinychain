@@ -283,8 +283,9 @@ class Forger:
         self.storage_engine.store_block_header(block.header)
         self.storage_engine.store_state(block.header.state_root, new_state)
 
-    def has_enough_signatures(self, block_header):  # P66ad
-        return True
+    def has_enough_signatures(self, block_header):
+        required_signatures = 2/3 * len(self.fetch_current_validator_set())
+        return block_header.has_enough_signatures(required_signatures)
 
     def get_validator_index(self, validator_address):
         staking_contract_state = self.storage_engine.fetch_contract_state("7374616b696e67")
