@@ -327,7 +327,8 @@ class Forger:
             if previous_block_header:
                 current_time = int(time.time())
                 if current_time >= previous_block_header.timestamp + ROUND_TIMEOUT:
-                    self.forge_new_block()
+                    if self.wallet.get_address() == self.select_proposer():
+                        self.forge_new_block()
                     break
 
 class StorageEngine:
