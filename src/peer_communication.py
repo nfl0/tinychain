@@ -2,9 +2,6 @@ import requests
 import logging
 import socket
 import psutil  # Import psutil to get all network interfaces and their IPs
-from aiohttp import web
-from block import BlockHeader, Signature
-from wallet import Wallet
 from parameters import PEER_DISCOVERY_METHOD, PEER_DISCOVERY_FILE, PEER_DISCOVERY_API
 
 def get_local_ips():
