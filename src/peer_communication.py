@@ -2,11 +2,37 @@ import requests
 import logging
 from block import BlockHeader, Signature
 from wallet import Wallet
-from parameters import PEER_URIS
+from parameters import PEER_DISCOVERY_METHOD, PEER_DISCOVERY_FILE, PEER_DISCOVERY_API
+
+def get_peers():
+    if PEER_DISCOVERY_METHOD == 'file':
+        try:
+            with open(PEER_DISCOVERY_FILE, 'r') as file:
+                peers = file.read().splitlines()
+                return peers
+        except Exception as e:
+            logging.error(f"Error reading peers from file: {e}")
+            return []
+    elif PEER_DISCOVERY_METHOD == 'api':
+        try:
+            response = requests.get(PEER_DISCOVERY_API, timeout=0.3)
+            if response.status_code == 200:
+                peers = response.json().get('peers', [])
+                return peers
+            else:
+                logging.error(f"Failed to fetch peers from API: {response.status_code}")
+                return []
+        except Exception as e:
+            logging.error(f"Error fetching peers from API: {e}")
+            return []
+    else:
+        logging.error(f"Unknown peer discovery method: {PEER_DISCOVERY_METHOD}")
+        return []
 
 def broadcast_block_header(block_header):
     logging.info(f"Broadcasting block header with hash: {block_header.block_hash}")
-    for peer_uri in PEER_URIS:
+    peers = get_peers()
+    for peer_uri in peers:
         try:
             response = requests.post(f'http://{peer_uri}/receive_block', json={'block_header': block_header.to_dict()}, timeout=0.3)
             if response.status_code == 200:
@@ -50,7 +76,8 @@ def receive_block_header(request):
     return {'message': 'Block header received and processed'}, 200
 
 def broadcast_transaction(transaction, sender_uri):
-    for peer_uri in PEER_URIS:
+    peers = get_peers()
+    for peer_uri in peers:
         if peer_uri != sender_uri:
             try:
                 response = requests.post(f'http://{peer_uri}/send_transaction', json={'transaction': transaction.to_dict()}, timeout=0.3)
